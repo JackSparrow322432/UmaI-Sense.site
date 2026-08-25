@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3c4fb513-051f-48a9-85e8-2209e6f89a22" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/.env.example" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/package-lock.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/package.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/activities.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/admin.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/articles.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/auth.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/children.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/diary.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/emotions.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/invites.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/milestones.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/notifications.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/recommendations.controller.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/index.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/middleware/auth.middleware.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Activity.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Article.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Child.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/DiaryEntry.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Emotion.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/InviteCode.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Milestone.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Notification.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/OtpCode.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Recommendation.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/User.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/activities.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/admin.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/articles.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/auth.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/children.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/diary.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/emotions.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/invites.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/milestones.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/notifications.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/recommendations.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/upload.routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/types/index.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/createIndexes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/generateToken.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/seedAdmin.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/seedMilestones.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/sendEmail.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/upload.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/umaisense-back-main/tsconfig.json" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 2,
+  "fromUser": false
+}]]></component>
+  <component name="ProjectId" id="3IOW6j27nBB84ysjEcmEI7Kpddz" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "main",
+    "junie.onboarding.icon.badge.shown": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Admin\PycharmProjects\Umai-Sense" />
+      <recent name="C:\Users\Admin\PycharmProjects\Umai-Sense\umaisense-back-main" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-b63d5a1f7c97-b61e75351b1f-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.22158.340" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="3c4fb513-051f-48a9-85e8-2209e6f89a22" name="Changes" comment="" />
+      <created>1787635923411</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1787635923411</updated>
+      <workItem from="1787635924441" duration="1352000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/main.py</url>
+          <line>8</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
+</project>
