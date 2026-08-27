@@ -5,57 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="3c4fb513-051f-48a9-85e8-2209e6f89a22" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/.env.example" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/package-lock.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/package.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/activities.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/admin.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/articles.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/auth.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/children.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/diary.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/emotions.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/invites.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/milestones.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/notifications.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/controllers/recommendations.controller.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/index.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/middleware/auth.middleware.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Activity.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Article.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Child.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/DiaryEntry.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Emotion.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/InviteCode.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Milestone.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Notification.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/OtpCode.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/Recommendation.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/models/User.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/activities.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/admin.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/articles.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/auth.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/children.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/diary.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/emotions.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/invites.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/milestones.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/notifications.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/recommendations.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/routes/upload.routes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/types/index.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/createIndexes.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/generateToken.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/seedAdmin.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/seedMilestones.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/sendEmail.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/src/utils/upload.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/umaisense-back-main/tsconfig.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -65,10 +15,10 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 2,
-  "fromUser": false
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 2,
+  &quot;fromUser&quot;: false
+}</component>
   <component name="ProjectId" id="3IOW6j27nBB84ysjEcmEI7Kpddz" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -78,6 +28,7 @@
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
@@ -114,6 +65,7 @@
       <option name="presentableId" value="Default" />
       <updated>1787635923411</updated>
       <workItem from="1787635924441" duration="1352000" />
+      <workItem from="1787639860730" duration="2916000" />
     </task>
     <servers />
   </component>
