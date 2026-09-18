@@ -44,8 +44,13 @@ export const upload = multer({
 // ─── Upload helper ────────────────────────────────────────────────────────────
 
 const uploadDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
+if (!cloudinaryEnabled) {
+  try {
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+  } catch (err) {
+    console.warn('[Upload] Не удалось создать локальную папку uploads (read-only filesystem):', err);
+  }
+}
 export const uploadImage = (file: Express.Multer.File): Promise<string> => {
   return cloudinaryEnabled ? uploadToCloudinary(file) : saveLocally(file);
 };
