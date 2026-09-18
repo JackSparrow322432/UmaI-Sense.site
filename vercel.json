@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm install --prefix umiasense-front-main && npm run build --prefix umiasense-front-main",
+  "outputDirectory": "umiasense-front-main/dist",
+  "installCommand": "npm install --prefix umaisense-back-main",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}
