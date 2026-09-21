@@ -75,4 +75,16 @@ mongoose
   .catch((err: Error) => {
     console.error('DB connection error:', err.message);
     process.exit(1);
+    export interface DocumentItem {
+  _id: string;
+  childId: string;
+  uploadedBy: Pick<User, '_id' | 'name' | 'role'> | string;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+  aiStatus: 'pending' | 'done' | 'failed';
+  aiExplanation?: string;
+  createdAt: string;
+  updatedAt: string;
+}
   });
