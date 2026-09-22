@@ -15,6 +15,7 @@ import notificationsRoutes from './routes/notifications.routes';
 import uploadRoutes from './routes/upload.routes';
 import adminRoutes from './routes/admin.routes';
 import articlesRoutes from './routes/articles.routes';
+import documentsRoutes from './routes/documents.routes';
 import { seedMilestones } from './utils/seedMilestones';
 import { seedAdmin } from './utils/seedAdmin';
 import { createIndexes } from './utils/createIndexes';
@@ -107,7 +108,12 @@ export const createApp = () => {
   app.use('/api/upload', uploadRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/articles', articlesRoutes);
+  app.use('/api/documents', documentsRoutes);
 
+  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+  return app;
+};
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
   return app;
