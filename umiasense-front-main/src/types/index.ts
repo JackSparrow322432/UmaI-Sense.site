@@ -141,3 +141,16 @@ export interface InviteCode {
   expiresAt: string;
   used: boolean;
 }
+
+export interface DocumentItem {
+  _id: string;
+  childId: string;
+  uploadedBy: Pick<User, '_id' | 'name' | 'role'> | string;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+  aiStatus: 'pending' | 'done' | 'failed';
+  aiExplanation?: string;
+  createdAt: string;
+  updatedAt: string;
+}
