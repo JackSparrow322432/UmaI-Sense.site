@@ -3,7 +3,7 @@ import type {
   User, Child, Emotion, Activity, DiaryEntry,
   Milestone, ChildMilestone, Recommendation,
   Notification, InviteCode, MoodType,
-  ActivityCategory, DiaryTag, MilestoneStatus, Article,
+  ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
 } from '../types';
 
 // Auth
@@ -120,4 +120,18 @@ export const adminApi = {
     diary: DiaryEntry[];
     stats: { totalEmotions: number; totalActivities: number; totalDiary: number };
   }>(`/admin/children/${childId}`),
+};
+
+// Documents
+export const documentsApi = {
+  getAll: (childId: string) => api.get<DocumentItem[]>(`/documents/${childId}`),
+  upload: (childId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<DocumentItem>(`/documents/${childId}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  delete: (childId: string, documentId: string) =>
+    api.delete(`/documents/${childId}/${documentId}`),
 };
