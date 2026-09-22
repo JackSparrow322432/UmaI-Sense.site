@@ -29,6 +29,7 @@ const MODULES = [
   { to: 'diary',           icon: '📓', label: 'Дневник' },
   { to: 'milestones',      icon: '📈', label: 'Развитие' },
   { to: 'recommendations', icon: '✨', label: 'ИИ Советы', parentOnly: true },
+  { to: 'documents',       icon: '📄', label: 'Документы' },
 ];
 
 export default function ChildProfilePage() {
