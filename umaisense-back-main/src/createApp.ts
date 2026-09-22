@@ -114,7 +114,4 @@ export const createApp = () => {
 
   return app;
 };
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
-
-  return app;
-};
+  
