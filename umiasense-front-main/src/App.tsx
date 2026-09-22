@@ -23,6 +23,7 @@ import DiaryPage from './pages/diary/DiaryPage';
 import MilestonesPage from './pages/milestones/MilestonesPage';
 import RecommendationsPage from './pages/recommendations/RecommendationsPage';
 import ChildProfilePage from './pages/children/ChildProfilePage';
+import DocumentsPage from './pages/documents/DocumentsPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 
@@ -104,6 +105,7 @@ export default function App() {
           <Route path="children/:id/diary" element={<DiaryPage />} />
           <Route path="children/:id/milestones" element={<MilestonesPage />} />
           <Route path="children/:id/recommendations" element={<RecommendationsPage />} />
+          <Route path="children/:id/documents" element={<DocumentsPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="articles" element={<ArticlesPage />} />
