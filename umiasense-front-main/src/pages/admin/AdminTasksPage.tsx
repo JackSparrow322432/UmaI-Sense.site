@@ -1,3 +1,6 @@
+// ФАЙЛ: umiasense-front-main/src/pages/admin/AdminTasksPage.tsx
+// ПОЛНАЯ ЗАМЕНА ФАЙЛА
+
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -144,7 +147,14 @@ export default function AdminTasksPage() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                  <button
+                    onClick={() => navigate(`/admin/tasks/${task._id}/submissions`)}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-[#EFF6FF] text-[#2563EB] hover:bg-[#DBEAFE] transition-all whitespace-nowrap"
+                    title="Проверить домашние задания и выставить оценки"
+                  >
+                    Проверка
+                  </button>
                   <button
                     onClick={() => handleTogglePublish(task)}
                     disabled={toggling === task._id}
