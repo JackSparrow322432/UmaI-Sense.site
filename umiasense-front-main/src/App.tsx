@@ -37,6 +37,10 @@ import AdminArticlesPage from './pages/admin/AdminArticlesPage';
 import AdminArticleFormPage from './pages/admin/AdminArticleFormPage';
 import ArticlesPage from './pages/articles/ArticlesPage';
 import ArticleDetailPage from './pages/articles/ArticleDetailPage';
+import TasksPage from './pages/tasks/TasksPage';
+import TaskDetailPage from './pages/tasks/TaskDetailPage';
+import AdminTasksPage from './pages/admin/AdminTasksPage';
+import AdminTaskFormPage from './pages/admin/AdminTaskFormPage';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const token = useAuthStore((s) => s.token);
@@ -53,7 +57,6 @@ export default function App() {
   const { token, user, setUser, clearAuth } = useAuthStore();
   const [booting, setBooting] = useState(true);
 
-  // On mount: verify token with server and load user
   useEffect(() => {
     if (!token) {
       setBooting(false);
@@ -110,6 +113,8 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="articles" element={<ArticlesPage />} />
           <Route path="articles/:id" element={<ArticleDetailPage />} />
+          <Route path="tasks" element={<TasksPage />} />
+          <Route path="tasks/:id" element={<TaskDetailPage />} />
         </Route>
 
         {/* Admin */}
@@ -128,6 +133,9 @@ export default function App() {
           <Route path="articles" element={<AdminArticlesPage />} />
           <Route path="articles/new" element={<AdminArticleFormPage />} />
           <Route path="articles/:id/edit" element={<AdminArticleFormPage />} />
+          <Route path="tasks" element={<AdminTasksPage />} />
+          <Route path="tasks/new" element={<AdminTaskFormPage />} />
+          <Route path="tasks/:id/edit" element={<AdminTaskFormPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
