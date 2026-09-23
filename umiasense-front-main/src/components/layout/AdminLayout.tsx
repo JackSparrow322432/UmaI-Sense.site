@@ -27,6 +27,16 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    to: '/admin/tasks',
+    label: 'Задания',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 11l3 3L22 4"/>
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+    ),
+  },
 ];
 
 export default function AdminLayout() {
@@ -45,7 +55,6 @@ export default function AdminLayout() {
 
   const SidebarContent = () => (
     <>
-      {/* Nav */}
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5">
         <p className="text-xs font-medium text-gray-400 px-3 mb-2">Управление</p>
         {NAV_ITEMS.map(({ to, label, icon }) => (
@@ -71,7 +80,6 @@ export default function AdminLayout() {
         ))}
       </nav>
 
-      {/* Admin info + logout */}
       <div className="px-3 py-4 border-t border-gray-200">
         <div className="flex items-center gap-2.5 px-3 py-2 mb-1">
           <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600 flex-shrink-0">
@@ -116,8 +124,6 @@ export default function AdminLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-
-      {/* ── SIDEBAR (desktop only) ── */}
       <aside className="hidden sm:flex fixed left-0 top-0 h-full w-56 flex-col bg-white border-r border-gray-200 z-30">
         <div className="px-5 h-14 flex items-center border-b border-gray-200 flex-shrink-0">
           <BrandLogo />
@@ -125,7 +131,6 @@ export default function AdminLayout() {
         <SidebarContent />
       </aside>
 
-      {/* ── TOPBAR (mobile only) ── */}
       <header className="sm:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-gray-200 px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <button
@@ -142,7 +147,6 @@ export default function AdminLayout() {
         </div>
       </header>
 
-      {/* ── MOBILE DRAWER OVERLAY ── */}
       {drawerOpen && (
         <div
           className="sm:hidden fixed inset-0 z-40 bg-black/40"
@@ -150,7 +154,6 @@ export default function AdminLayout() {
         />
       )}
 
-      {/* ── MOBILE DRAWER SIDEBAR ── */}
       <aside
         className={`sm:hidden fixed top-0 left-0 h-full w-64 flex flex-col bg-white border-r border-gray-200 z-50 transition-transform duration-200 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
@@ -170,7 +173,6 @@ export default function AdminLayout() {
         <SidebarContent />
       </aside>
 
-      {/* ── MAIN ── */}
       <main className="sm:ml-56 pt-14 sm:pt-0 min-h-screen">
         <div className="max-w-5xl mx-auto px-4 sm:px-8 py-8">
           <Outlet />
