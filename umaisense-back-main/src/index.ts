@@ -1,134 +1,79 @@
-import { Request } from 'express';
-import { Document, Types } from 'mongoose';
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import mongoose from 'mongoose';
+import path from 'path';
 
-export interface IUser extends Document {
-  _id: Types.ObjectId;
-  email: string;
-  name: string;
-  photo?: string;
-  role: 'parent' | 'trainer' | 'admin';
-  password?: string;
-  isVerified: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import authRoutes from './routes/auth.routes';
+import childrenRoutes from './routes/children.routes';
+import invitesRoutes from './routes/invites.routes';
+import emotionsRoutes from './routes/emotions.routes';
+import activitiesRoutes from './routes/activities.routes';
+import diaryRoutes from './routes/diary.routes';
+import milestonesRoutes from './routes/milestones.routes';
+import recommendationsRoutes from './routes/recommendations.routes';
+import notificationsRoutes from './routes/notifications.routes';
+import uploadRoutes from './routes/upload.routes';
+import adminRoutes from './routes/admin.routes';
+import articlesRoutes from './routes/articles.routes';
+import documentsRoutes from './routes/documents.routes';
+import tasksRoutes from './routes/tasks.routes';
+import { seedMilestones } from './utils/seedMilestones';
+import { seedAdmin } from './utils/seedAdmin';
+import { createIndexes } from './utils/createIndexes';
 
-export interface IChild extends Document {
-  _id: Types.ObjectId;
-  parentId: Types.ObjectId;
-  name: string;
-  dateOfBirth: Date;
-  photo?: string;
-  diagnosis?: string;
-  communicationMethod?: string;
-  fears?: string[];
-  triggers?: string[];
-  interests?: string[];
-  calmingActivities?: string[];
-  sensoryProfile?: {
-    sound?: string;
-    light?: string;
-    touch?: string;
-    smell?: string;
-    taste?: string;
-  };
-  behavioralNotes?: string;
-  goals?: Array<{ title: string; description?: string }>;
-  trainers: Types.ObjectId[];
-  createdAt: Date;
-  updatedAt: Date;
-}
+const app = express();
 
-export interface IInviteCode extends Document {
-  code: string;
-  childId: Types.ObjectId;
-  parentId: Types.ObjectId;
-  expiresAt: Date;
-  used: boolean;
-  usedBy?: Types.ObjectId;
-}
+const allowedOrigins = [
+  'https://umai-sense.netlify.app',
+  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : []),
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+];
 
-export interface IEmotion extends Document {
-  childId: Types.ObjectId;
-  recordedBy: Types.ObjectId;
-  mood: 'calm' | 'happy' | 'anxious' | 'overwhelmed' | 'sad' | 'angry' | 'excited';
-  intensity: 1 | 2 | 3 | 4 | 5;
-  comment?: string;
-  createdAt: Date;
-}
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+      else callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  })
+);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-export interface IActivity extends Document {
-  childId: Types.ObjectId;
-  recordedBy: Types.ObjectId;
-  name: string;
-  category: 'hobby' | 'therapy' | 'study' | 'walk' | 'social' | 'other';
-  date: Date;
-  duration?: number;
-  notes?: string;
-  createdAt: Date;
-}
+app.use('/api/auth', authRoutes);
+app.use('/api/children', childrenRoutes);
+app.use('/api/invites', invitesRoutes);
+app.use('/api/emotions', emotionsRoutes);
+app.use('/api/activities', activitiesRoutes);
+app.use('/api/diary', diaryRoutes);
+app.use('/api/milestones', milestonesRoutes);
+app.use('/api/recommendations', recommendationsRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/articles', articlesRoutes);
+app.use('/api/documents', documentsRoutes);
+app.use('/api/tasks', tasksRoutes);
 
-export interface IDiaryEntry extends Document {
-  childId: Types.ObjectId;
-  author: Types.ObjectId;
-  text: string;
-  tag: 'trigger' | 'mood' | 'info' | 'progress';
-  media?: string[];
-  linkedMilestone?: Types.ObjectId;
-  createdAt: Date;
-}
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
-export interface IMilestone extends Document {
-  ageGroup: string;
-  direction: 'cognitive' | 'motor' | 'social' | 'speech' | 'selfcare';
-  skill: string;
-  description?: string;
-}
+const PORT = process.env.PORT || 5000;
 
-export interface IChildMilestone extends Document {
-  childId: Types.ObjectId;
-  milestoneId: Types.ObjectId;
-  status: 'achieved' | 'in_progress' | 'not_yet';
-  updatedBy: Types.ObjectId;
-  updatedAt: Date;
-}
-
-export interface IRecommendation extends Document {
-  childId: Types.ObjectId;
-  content: {
-    calmingTechniques?: string[];
-    activitiesForToday?: string[];
-    communicationTips?: string[];
-    attentionPoints?: string[];
-  };
-  generatedAt: Date;
-}
-
-export interface INotification extends Document {
-  userId: Types.ObjectId;
-  type: 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article';
-  message: string;
-  read: boolean;
-  relatedId?: Types.ObjectId;
-  createdAt: Date;
-}
-
-export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    role: 'parent' | 'trainer' | 'admin';
-  };
-}
-
-export interface IDocument extends Document {
-  _id: Types.ObjectId;
-  childId: Types.ObjectId;
-  uploadedBy: Types.ObjectId;
-  fileUrl: string;
-  fileName: string;
-  mimeType: string;
-  aiStatus: 'pending' | 'done' | 'failed';
-  aiExplanation?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+mongoose
+  .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/umai_sense')
+  .then(async () => {
+    console.log('MongoDB connected');
+    await seedMilestones();
+    await seedAdmin();
+    await createIndexes();
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  })
+  .catch((err: Error) => {
+    console.error('DB connection error:', err.message);
+    process.exit(1);
+  });
