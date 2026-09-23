@@ -1,3 +1,6 @@
+// ФАЙЛ: umiasense-front-main/src/types/index.ts
+// ПОЛНАЯ ЗАМЕНА ФАЙЛА
+
 export type UserRole = 'parent' | 'trainer' | 'admin';
 
 export interface User {
@@ -140,9 +143,33 @@ export interface TaskRating {
   _id: string;
   taskId: string;
   childId: string;
-  rating: 1 | 2 | 3 | 4 | 5;
+  rating?: 1 | 2 | 3 | 4 | 5;
   comment?: string;
-  ratedBy: string;
+  ratedBy?: string;
+  submissionUrl?: string;
+  submissionFileName?: string;
+  submittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Ответ /tasks/:id/submissions (только для админа) — та же запись,
+// но childId уже развёрнут в объект ребёнка (и его родителя) для отображения.
+export interface TaskSubmissionAdmin {
+  _id: string;
+  taskId: string;
+  childId: {
+    _id: string;
+    name: string;
+    photo?: string;
+    parentId?: { _id: string; name: string };
+  };
+  rating?: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  ratedBy?: string;
+  submissionUrl?: string;
+  submissionFileName?: string;
+  submittedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
