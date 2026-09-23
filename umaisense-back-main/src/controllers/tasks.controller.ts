@@ -1,3 +1,5 @@
+
+
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import Task from '../models/Task';
@@ -5,11 +7,13 @@ import TaskRating from '../models/TaskRating';
 import Notification from '../models/Notification';
 import User from '../models/User';
 import Child from '../models/Child';
+import { uploadImage } from '../utils/upload';
 
-const getChildWithAccess = async (childId: string, userId?: string) => {
+const getChildWithAccess = async (childId: string, userId?: string, role?: string) => {
   const child = await Child.findById(childId);
   if (!child) return null;
   const hasAccess =
+    role === 'admin' ||
     child.parentId.toString() === userId ||
     child.trainers.some((t) => t.toString() === userId);
   return hasAccess ? child : null;
@@ -125,6 +129,22 @@ export const getTaskRatings = async (req: AuthRequest, res: Response): Promise<v
   }
 };
 
+export const getAllTaskSubmissions = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const taskId = req.params['id'];
+    const ratings = await TaskRating.find({ taskId })
+      .sort({ updatedAt: -1 })
+      .populate({
+        path: 'childId',
+        select: 'name photo parentId',
+        populate: { path: 'parentId', select: 'name' },
+      });
+    res.json(ratings);
+  } catch {
+    res.status(500).json({ message: 'Ошибка сервера' });
+  }
+};
+
 export const setTaskRating = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id: taskId, childId } = req.params;
@@ -136,7 +156,7 @@ export const setTaskRating = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const child = await getChildWithAccess(childId as string, req.user?.id);
+    const child = await getChildWithAccess(childId as string, req.user?.id, req.user?.role);
     if (!child) {
       res.status(403).json({ message: 'Доступ запрещён' });
       return;
@@ -160,11 +180,56 @@ export const setTaskRating = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
+export const uploadTaskSubmission = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (req.user?.role !== 'parent') {
+      res.status(403).json({ message: 'Загружать выполненное задание может только родитель' });
+      return;
+    }
+
+    const { id: taskId, childId } = req.params;
+
+    const child = await getChildWithAccess(childId as string, req.user?.id, req.user?.role);
+    if (!child) {
+      res.status(403).json({ message: 'Доступ запрещён' });
+      return;
+    }
+
+    const task = await Task.findById(taskId);
+    if (!task) {
+      res.status(404).json({ message: 'Задание не найдено' });
+      return;
+    }
+
+    if (!req.file) {
+      res.status(400).json({ message: 'Файл не загружен' });
+      return;
+    }
+
+    const fileUrl = await uploadImage(req.file);
+
+    const taskRating = await TaskRating.findOneAndUpdate(
+      { taskId, childId },
+      {
+        submissionUrl: fileUrl,
+        submissionFileName: req.file.originalname,
+        submittedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    res.json(taskRating);
+  } catch (err) {
+    console.error('[Tasks] submission upload error:', err);
+    res.status(500).json({ message: 'Ошибка загрузки файла' });
+  }
+};
+
 export const deleteTaskRating = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id: taskId, childId } = req.params;
 
-    const child = await getChildWithAccess(childId as string, req.user?.id);
+    const child = await getChildWithAccess(childId as string, req.user?.id, req.user?.role);
     if (!child) {
       res.status(403).json({ message: 'Доступ запрещён' });
       return;
