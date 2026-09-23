@@ -1,3 +1,6 @@
+// ФАЙЛ: umiasense-front-main/src/pages/tasks/TaskDetailPage.tsx
+// ПОЛНАЯ ЗАМЕНА ФАЙЛА
+
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -52,10 +55,14 @@ function ChildRatingRow({
   rating?: TaskRating;
   onSaved: (r: TaskRating) => void;
 }) {
+  const { user } = useAuthStore();
+  const isParent = user?.role === 'parent';
+
   const [value,   setValue]   = useState(rating?.rating ?? 0);
   const [comment, setComment] = useState(rating?.comment ?? '');
   const [saving,  setSaving]  = useState(false);
   const [editingComment, setEditingComment] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const handleRate = async (n: number) => {
     setValue(n);
@@ -86,11 +93,68 @@ function ChildRatingRow({
     }
   };
 
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { data } = await tasksApi.uploadSubmission(taskId, child._id, file);
+      onSaved(data);
+      toast.success('Выполненное задание загружено');
+    } catch {
+      toast.error('Не удалось загрузить файл');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm font-semibold text-gray-800">{child.name}</p>
         <StarRating value={value} onChange={handleRate} disabled={saving} />
+      </div>
+
+      {/* Выполненное задание */}
+      <div className="border-t border-gray-50 pt-3">
+        {rating?.submissionUrl ? (
+          <div className="flex items-center gap-3">
+            <a href={rating.submissionUrl} target="_blank" rel="noreferrer" className="flex-shrink-0">
+              <img src={rating.submissionUrl} className="w-14 h-14 rounded-lg object-cover border border-gray-200" alt="" />
+            </a>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-gray-700 truncate">
+                {rating.submissionFileName || 'Выполненное задание'}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {rating.submittedAt ? `Загружено ${formatDate(rating.submittedAt)}` : 'Загружено'}
+              </p>
+            </div>
+            {isParent && (
+              <label className="text-[11px] font-semibold text-[#E07628] hover:underline cursor-pointer flex-shrink-0">
+                {uploading ? '...' : 'Заменить'}
+                <input type="file" accept="image/*" className="hidden" onChange={handleUpload} disabled={uploading} />
+              </label>
+            )}
+          </div>
+        ) : isParent ? (
+          <label className="flex items-center justify-center gap-2 w-full h-16 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-[#E07628] hover:bg-gray-50 transition">
+            {uploading ? (
+              <div className="w-5 h-5 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <span className="text-xs text-gray-400">Загрузить выполненное задание</span>
+              </>
+            )}
+            <input type="file" accept="image/*" className="hidden" onChange={handleUpload} disabled={uploading} />
+          </label>
+        ) : (
+          <p className="text-xs text-gray-300">Домашнее задание ещё не загружено</p>
+        )}
       </div>
 
       {editingComment ? (
@@ -217,8 +281,12 @@ export default function TaskDetailPage() {
       {canRate && (
         <div className="space-y-3">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Оценка выполнения</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Поставьте оценку от 1 до 5 за каждого ребёнка</p>
+            <h2 className="text-base font-bold text-gray-900">Выполнение и оценка</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {user?.role === 'parent'
+                ? 'Загрузите выполненное задание и посмотрите оценку за каждого ребёнка'
+                : 'Поставьте оценку от 1 до 5 за каждого ребёнка'}
+            </p>
           </div>
 
           {children.length === 0 ? (
