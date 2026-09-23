@@ -28,6 +28,17 @@ const ARTICLES_NAV_ITEM = {
   ),
 };
 
+const TASKS_NAV_ITEM = {
+  to: '/tasks',
+  label: 'Задания',
+  icon: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4"/>
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+  ),
+};
+
 const BASE_NAV_ITEMS = [
   {
     to: '/children',
@@ -41,6 +52,7 @@ const BASE_NAV_ITEMS = [
       </svg>
     ),
   },
+  TASKS_NAV_ITEM,
   {
     to: '/notifications',
     label: 'Уведомления',
@@ -87,7 +99,6 @@ export default function Layout() {
       .catch(() => {});
   }, []);
 
-  // Close drawer on route change
   const closeDrawer = () => setDrawerOpen(false);
 
   const handleLogout = () => {
@@ -97,7 +108,6 @@ export default function Layout() {
 
   const SidebarContent = () => (
     <>
-      {/* Nav */}
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
         {NAV_ITEMS.map(({ to, label, icon }) => (
           <NavLink
@@ -127,7 +137,6 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Logout */}
       <div className="px-3 py-4 border-t border-gray-200">
         <button
           onClick={handleLogout}
@@ -142,10 +151,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-
-      {/* ── SIDEBAR (desktop only) ── */}
       <aside className="hidden sm:flex fixed left-0 top-0 h-full w-56 flex-col bg-white border-r border-gray-200 z-30">
-        {/* Brand */}
         <div className="px-5 h-14 flex items-center border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-[#E07628] flex items-center justify-center flex-shrink-0">
@@ -162,7 +168,6 @@ export default function Layout() {
         <SidebarContent />
       </aside>
 
-      {/* ── TOPBAR (mobile only) ── */}
       <header className="sm:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-gray-200 px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <button
@@ -185,7 +190,6 @@ export default function Layout() {
             <span className="font-semibold text-gray-900 text-sm">UmaiSense</span>
           </div>
         </div>
-        {/* Notification badge on topbar */}
         {unreadCount > 0 && (
           <NavLink to="/notifications" className="relative text-gray-400 hover:text-gray-600 transition-colors p-1">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -199,7 +203,6 @@ export default function Layout() {
         )}
       </header>
 
-      {/* ── MOBILE DRAWER OVERLAY ── */}
       {drawerOpen && (
         <div
           className="sm:hidden fixed inset-0 z-40 bg-black/40"
@@ -207,13 +210,11 @@ export default function Layout() {
         />
       )}
 
-      {/* ── MOBILE DRAWER SIDEBAR ── */}
       <aside
         className={`sm:hidden fixed top-0 left-0 h-full w-64 flex flex-col bg-white border-r border-gray-200 z-50 transition-transform duration-200 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Drawer header */}
         <div className="px-4 h-14 flex items-center justify-between border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-[#E07628] flex items-center justify-center flex-shrink-0">
@@ -238,7 +239,6 @@ export default function Layout() {
         <SidebarContent />
       </aside>
 
-      {/* ── MAIN CONTENT ── */}
       <main className="sm:ml-56 pt-14 sm:pt-0 min-h-screen">
         <div className="max-w-3xl mx-auto px-4 sm:px-8 py-8">
           <Outlet />
