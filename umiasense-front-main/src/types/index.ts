@@ -108,7 +108,7 @@ export interface Recommendation {
   generatedAt: string;
 }
 
-export type NotificationType = 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article';
+export type NotificationType = 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task';
 
 export interface Article {
   _id: string;
@@ -119,6 +119,30 @@ export interface Article {
   published: boolean;
   publishedAt?: string;
   author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Task {
+  _id: string;
+  title: string;
+  description?: string;
+  content?: string;
+  coverImage?: string;
+  published: boolean;
+  publishedAt?: string;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskRating {
+  _id: string;
+  taskId: string;
+  childId: string;
+  rating: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  ratedBy: string;
   createdAt: string;
   updatedAt: string;
 }
