@@ -16,13 +16,10 @@ import uploadRoutes from './routes/upload.routes';
 import adminRoutes from './routes/admin.routes';
 import articlesRoutes from './routes/articles.routes';
 import documentsRoutes from './routes/documents.routes';
+import tasksRoutes from './routes/tasks.routes';
 import { seedMilestones } from './utils/seedMilestones';
 import { seedAdmin } from './utils/seedAdmin';
 import { createIndexes } from './utils/createIndexes';
-
-// Vercel-версия приложения из index.ts: то же самое, но без app.listen() —
-// Vercel сам вызывает экспортированный app как обработчик запроса.
-// index.ts не менялся и по-прежнему работает для локальной разработки.
 
 interface MongooseCache {
   conn: typeof mongoose | null;
@@ -109,6 +106,7 @@ export const createApp = () => {
   app.use('/api/admin', adminRoutes);
   app.use('/api/articles', articlesRoutes);
   app.use('/api/documents', documentsRoutes);
+  app.use('/api/tasks', tasksRoutes);
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
