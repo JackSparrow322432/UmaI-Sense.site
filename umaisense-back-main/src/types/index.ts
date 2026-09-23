@@ -106,7 +106,7 @@ export interface IRecommendation extends Document {
 
 export interface INotification extends Document {
   userId: Types.ObjectId;
-  type: 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article';
+  type: 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task';
   message: string;
   read: boolean;
   relatedId?: Types.ObjectId;
@@ -118,7 +118,9 @@ export interface AuthRequest extends Request {
     id: string;
     role: 'parent' | 'trainer' | 'admin';
   };
-  export interface IDocument extends Document {
+}
+
+export interface IDocument extends Document {
   _id: Types.ObjectId;
   childId: Types.ObjectId;
   uploadedBy: Types.ObjectId;
@@ -129,5 +131,4 @@ export interface AuthRequest extends Request {
   aiExplanation?: string;
   createdAt: Date;
   updatedAt: Date;
-}
 }
