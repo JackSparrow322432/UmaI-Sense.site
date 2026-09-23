@@ -1,10 +1,11 @@
+
 import api from './axios';
 import type {
   User, Child, Emotion, Activity, DiaryEntry,
   Milestone, ChildMilestone, Recommendation,
   Notification, InviteCode, MoodType,
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
-  Task, TaskRating,
+  Task, TaskRating, TaskSubmissionAdmin,
 } from '../types';
 
 export const authApi = {
@@ -135,4 +136,13 @@ export const tasksApi = {
     api.put<TaskRating>(`/tasks/${taskId}/ratings/${childId}`, data),
   deleteRating: (taskId: string, childId: string) =>
     api.delete(`/tasks/${taskId}/ratings/${childId}`),
+  uploadSubmission: (taskId: string, childId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<TaskRating>(`/tasks/${taskId}/submissions/${childId}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  getAllSubmissions: (taskId: string) =>
+    api.get<TaskSubmissionAdmin[]>(`/tasks/${taskId}/submissions`),
 };
