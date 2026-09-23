@@ -1,21 +1,23 @@
-export type UserRole = 'parent' | 'trainer' | 'admin';
+import { Request } from 'express';
+import { Document, Types } from 'mongoose';
 
-export interface User {
-  _id: string;
+export interface IUser extends Document {
+  _id: Types.ObjectId;
   email: string;
   name: string;
   photo?: string;
-  role: UserRole;
+  role: 'parent' | 'trainer' | 'admin';
+  password?: string;
   isVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export interface Child {
-  _id: string;
-  parentId: string;
+export interface IChild extends Document {
+  _id: Types.ObjectId;
+  parentId: Types.ObjectId;
   name: string;
-  dateOfBirth: string;
+  dateOfBirth: Date;
   photo?: string;
   diagnosis?: string;
   communicationMethod?: string;
@@ -32,149 +34,101 @@ export interface Child {
   };
   behavioralNotes?: string;
   goals?: Array<{ title: string; description?: string }>;
-  trainers: User[];
-  createdAt: string;
-  updatedAt: string;
+  trainers: Types.ObjectId[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export type MoodType = 'calm' | 'happy' | 'anxious' | 'overwhelmed' | 'sad' | 'angry' | 'excited';
+export interface IInviteCode extends Document {
+  code: string;
+  childId: Types.ObjectId;
+  parentId: Types.ObjectId;
+  expiresAt: Date;
+  used: boolean;
+  usedBy?: Types.ObjectId;
+}
 
-export interface Emotion {
-  _id: string;
-  childId: string;
-  recordedBy: Pick<User, '_id' | 'name' | 'role'>;
-  mood: MoodType;
+export interface IEmotion extends Document {
+  childId: Types.ObjectId;
+  recordedBy: Types.ObjectId;
+  mood: 'calm' | 'happy' | 'anxious' | 'overwhelmed' | 'sad' | 'angry' | 'excited';
   intensity: 1 | 2 | 3 | 4 | 5;
   comment?: string;
-  createdAt: string;
+  createdAt: Date;
 }
 
-export type ActivityCategory = 'hobby' | 'therapy' | 'study' | 'walk' | 'social' | 'other';
-
-export interface Activity {
-  _id: string;
-  childId: string;
-  recordedBy: Pick<User, '_id' | 'name' | 'role'>;
+export interface IActivity extends Document {
+  childId: Types.ObjectId;
+  recordedBy: Types.ObjectId;
   name: string;
-  category: ActivityCategory;
-  date: string;
+  category: 'hobby' | 'therapy' | 'study' | 'walk' | 'social' | 'other';
+  date: Date;
   duration?: number;
   notes?: string;
-  createdAt: string;
+  createdAt: Date;
 }
 
-export type DiaryTag = 'trigger' | 'mood' | 'info' | 'progress';
-
-export interface DiaryEntry {
-  _id: string;
-  childId: string;
-  author: Pick<User, '_id' | 'name' | 'role'>;
+export interface IDiaryEntry extends Document {
+  childId: Types.ObjectId;
+  author: Types.ObjectId;
   text: string;
-  tag: DiaryTag;
+  tag: 'trigger' | 'mood' | 'info' | 'progress';
   media?: string[];
-  linkedMilestone?: string;
-  createdAt: string;
+  linkedMilestone?: Types.ObjectId;
+  createdAt: Date;
 }
 
-export type MilestoneDirection = 'cognitive' | 'motor' | 'social' | 'speech' | 'selfcare';
-export type MilestoneStatus = 'achieved' | 'in_progress' | 'not_yet';
-
-export interface Milestone {
-  _id: string;
+export interface IMilestone extends Document {
   ageGroup: string;
-  direction: MilestoneDirection;
+  direction: 'cognitive' | 'motor' | 'social' | 'speech' | 'selfcare';
   skill: string;
   description?: string;
 }
 
-export interface ChildMilestone {
-  _id: string;
-  childId: string;
-  milestoneId: Milestone;
-  status: MilestoneStatus;
-  updatedBy: string;
-  updatedAt: string;
+export interface IChildMilestone extends Document {
+  childId: Types.ObjectId;
+  milestoneId: Types.ObjectId;
+  status: 'achieved' | 'in_progress' | 'not_yet';
+  updatedBy: Types.ObjectId;
+  updatedAt: Date;
 }
 
-export interface Recommendation {
-  _id: string;
-  childId: string;
+export interface IRecommendation extends Document {
+  childId: Types.ObjectId;
   content: {
     calmingTechniques?: string[];
     activitiesForToday?: string[];
     communicationTips?: string[];
     attentionPoints?: string[];
   };
-  generatedAt: string;
+  generatedAt: Date;
 }
 
-export type NotificationType = 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task';
-
-export interface Article {
-  _id: string;
-  title: string;
-  excerpt?: string;
-  content?: string;
-  coverImage?: string;
-  published: boolean;
-  publishedAt?: string;
-  author: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Task {
-  _id: string;
-  title: string;
-  description?: string;
-  content?: string;
-  coverImage?: string;
-  published: boolean;
-  publishedAt?: string;
-  author: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TaskRating {
-  _id: string;
-  taskId: string;
-  childId: string;
-  rating: 1 | 2 | 3 | 4 | 5;
-  comment?: string;
-  ratedBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Notification {
-  _id: string;
-  userId: string;
-  type: NotificationType;
+export interface INotification extends Document {
+  userId: Types.ObjectId;
+  type: 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task';
   message: string;
   read: boolean;
-  relatedId?: string;
-  createdAt: string;
+  relatedId?: Types.ObjectId;
+  createdAt: Date;
 }
 
-export interface InviteCode {
-  _id: string;
-  code: string;
-  childId: string;
-  parentId: string;
-  expiresAt: string;
-  used: boolean;
+export interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    role: 'parent' | 'trainer' | 'admin';
+  };
 }
 
-export interface DocumentItem {
-  _id: string;
-  childId: string;
-  uploadedBy: Pick<User, '_id' | 'name' | 'role'> | string;
+export interface IDocument extends Document {
+  _id: Types.ObjectId;
+  childId: Types.ObjectId;
+  uploadedBy: Types.ObjectId;
   fileUrl: string;
   fileName: string;
   mimeType: string;
   aiStatus: 'pending' | 'done' | 'failed';
   aiExplanation?: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
