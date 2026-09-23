@@ -41,6 +41,7 @@ import TasksPage from './pages/tasks/TasksPage';
 import TaskDetailPage from './pages/tasks/TaskDetailPage';
 import AdminTasksPage from './pages/admin/AdminTasksPage';
 import AdminTaskFormPage from './pages/admin/AdminTaskFormPage';
+import AdminTaskSubmissionsPage from './pages/admin/AdminTaskSubmissionsPage';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const token = useAuthStore((s) => s.token);
@@ -57,6 +58,7 @@ export default function App() {
   const { token, user, setUser, clearAuth } = useAuthStore();
   const [booting, setBooting] = useState(true);
 
+  // On mount: verify token with server and load user
   useEffect(() => {
     if (!token) {
       setBooting(false);
@@ -136,6 +138,7 @@ export default function App() {
           <Route path="tasks" element={<AdminTasksPage />} />
           <Route path="tasks/new" element={<AdminTaskFormPage />} />
           <Route path="tasks/:id/edit" element={<AdminTaskFormPage />} />
+          <Route path="tasks/:id/submissions" element={<AdminTaskSubmissionsPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
