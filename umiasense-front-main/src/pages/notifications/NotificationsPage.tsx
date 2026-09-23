@@ -1,12 +1,10 @@
-import React, { useEffect, useState } from 'react';
+imimport React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { notificationsApi } from '../../api';
 import { useNotifStore } from '../../store/notifStore';
 import { useAuthStore } from '../../store/authStore';
 import type { Notification, NotificationType } from '../../types';
-
-// ─── Type config ──────────────────────────────────────────────────────────────
 
 const TYPE_CFG: Record<NotificationType, { icon: React.ReactElement; color: string; bg: string }> = {
   diary_entry: {
@@ -51,9 +49,16 @@ const TYPE_CFG: Record<NotificationType, { icon: React.ReactElement; color: stri
       </svg>
     ),
   },
+  new_task: {
+    color: '#8B5CF6', bg: '#F5F3FF',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+    ),
+  },
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -67,7 +72,6 @@ const timeAgo = (iso: string) => {
   return `${days} дн назад`;
 };
 
-// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
