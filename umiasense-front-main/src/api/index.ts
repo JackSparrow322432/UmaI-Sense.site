@@ -4,9 +4,9 @@ import type {
   Milestone, ChildMilestone, Recommendation,
   Notification, InviteCode, MoodType,
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
+  Task, TaskRating,
 } from '../types';
 
-// Auth
 export const authApi = {
   sendOtp: (email: string, role: string) => api.post('/auth/send-otp', { email, role }),
   resendOtp: (email: string) => api.post('/auth/resend-otp', { email }),
@@ -24,7 +24,6 @@ export const authApi = {
   deleteAccount: () => api.delete('/auth/account'),
 };
 
-// Upload
 export const uploadApi = {
   image: (file: File) => {
     const formData = new FormData();
@@ -35,7 +34,6 @@ export const uploadApi = {
   },
 };
 
-// Children
 export const childrenApi = {
   getAll: () => api.get<Child[]>('/children'),
   getOne: (id: string) => api.get<Child>(`/children/${id}`),
@@ -46,13 +44,11 @@ export const childrenApi = {
     api.delete(`/children/${childId}/trainers/${trainerId}`),
 };
 
-// Invites
 export const invitesApi = {
   create: (childId: string) => api.post<InviteCode>('/invites/create', { childId }),
   use: (code: string) => api.post<{ message: string; child: Child }>('/invites/use', { code }),
 };
 
-// Emotions
 export const emotionsApi = {
   getAll: (childId: string) => api.get<Emotion[]>(`/emotions/${childId}`),
   add: (childId: string, data: { mood: MoodType; intensity: number; comment?: string }) =>
@@ -60,7 +56,6 @@ export const emotionsApi = {
   delete: (childId: string, emotionId: string) => api.delete(`/emotions/${childId}/${emotionId}`),
 };
 
-// Activities
 export const activitiesApi = {
   getAll: (childId: string, category?: ActivityCategory) =>
     api.get<Activity[]>(`/activities/${childId}`, { params: category ? { category } : {} }),
@@ -70,7 +65,6 @@ export const activitiesApi = {
     api.delete(`/activities/${childId}/${activityId}`),
 };
 
-// Diary
 export const diaryApi = {
   getAll: (childId: string, filters?: { tag?: DiaryTag; author?: string }) =>
     api.get<DiaryEntry[]>(`/diary/${childId}`, { params: filters }),
@@ -79,7 +73,6 @@ export const diaryApi = {
   delete: (childId: string, entryId: string) => api.delete(`/diary/${childId}/${entryId}`),
 };
 
-// Milestones
 export const milestonesApi = {
   getAll: () => api.get<Milestone[]>('/milestones'),
   getForChild: (childId: string) => api.get<ChildMilestone[]>(`/milestones/${childId}`),
@@ -87,20 +80,17 @@ export const milestonesApi = {
     api.put<ChildMilestone>(`/milestones/${childId}/${milestoneId}`, { status }),
 };
 
-// Recommendations
 export const recommendationsApi = {
   getAll: (childId: string) => api.get<Recommendation[]>(`/recommendations/${childId}`),
   generate: (childId: string) => api.post<Recommendation>(`/recommendations/${childId}/generate`),
 };
 
-// Notifications
 export const notificationsApi = {
   getAll: () => api.get<Notification[]>('/notifications'),
   markRead: (id: string) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put('/notifications/read-all'),
 };
 
-// Articles
 export const articlesApi = {
   getAll: () => api.get<Article[]>('/articles'),
   getOne: (id: string) => api.get<Article>(`/articles/${id}`),
@@ -109,7 +99,6 @@ export const articlesApi = {
   delete: (id: string) => api.delete(`/articles/${id}`),
 };
 
-// Admin
 export const adminApi = {
   getUsers: () => api.get<User[]>('/admin/users'),
   getUserDetail: (id: string) => api.get<{ user: User; children: Child[] }>(`/admin/users/${id}`),
@@ -122,7 +111,6 @@ export const adminApi = {
   }>(`/admin/children/${childId}`),
 };
 
-// Documents
 export const documentsApi = {
   getAll: (childId: string) => api.get<DocumentItem[]>(`/documents/${childId}`),
   upload: (childId: string, file: File) => {
@@ -134,4 +122,17 @@ export const documentsApi = {
   },
   delete: (childId: string, documentId: string) =>
     api.delete(`/documents/${childId}/${documentId}`),
+};
+
+export const tasksApi = {
+  getAll: () => api.get<Task[]>('/tasks'),
+  getOne: (id: string) => api.get<Task>(`/tasks/${id}`),
+  create: (data: Partial<Task>) => api.post<Task>('/tasks', data),
+  update: (id: string, data: Partial<Task>) => api.put<Task>(`/tasks/${id}`, data),
+  delete: (id: string) => api.delete(`/tasks/${id}`),
+  getRatings: (taskId: string) => api.get<TaskRating[]>(`/tasks/${taskId}/ratings`),
+  setRating: (taskId: string, childId: string, data: { rating: number; comment?: string }) =>
+    api.put<TaskRating>(`/tasks/${taskId}/ratings/${childId}`, data),
+  deleteRating: (taskId: string, childId: string) =>
+    api.delete(`/tasks/${taskId}/ratings/${childId}`),
 };
