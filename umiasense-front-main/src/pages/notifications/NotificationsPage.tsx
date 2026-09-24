@@ -1,3 +1,6 @@
+// ФАЙЛ: umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
+// ПОЛНАЯ ЗАМЕНА ФАЙЛА
+
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -5,6 +8,8 @@ import { notificationsApi } from '../../api';
 import { useNotifStore } from '../../store/notifStore';
 import { useAuthStore } from '../../store/authStore';
 import type { Notification, NotificationType } from '../../types';
+
+// ─── Type config ──────────────────────────────────────────────────────────────
 
 const TYPE_CFG: Record<NotificationType, { icon: React.ReactElement; color: string; bg: string }> = {
   diary_entry: {
@@ -59,6 +64,7 @@ const TYPE_CFG: Record<NotificationType, { icon: React.ReactElement; color: stri
   },
 };
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -72,6 +78,7 @@ const timeAgo = (iso: string) => {
   return `${days} дн назад`;
 };
 
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -199,6 +206,12 @@ export default function NotificationsPage() {
                 )}
               </button>
             );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
           })}
         </div>
       )}
