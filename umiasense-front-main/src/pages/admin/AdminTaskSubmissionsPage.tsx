@@ -115,16 +115,8 @@ function SubmissionRow({
                 {item.submissionFileName || 'Выполненное задание'}
               </p>
               <p className="text-[10px] text-gray-400 mt-0.5">
-                {item.submittedAt ? `Загружено ${formatDate(item.submittedAt)}` : 'Загружено'}
+                {item.submittedAt ? `Загружено ${formatDate(item.submittedAt)}` : 'Загружено'} · нажмите на превью, чтобы открыть в полном размере
               </p>
-              
-                href={item.submissionUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] font-semibold text-[#E07628] hover:underline"
-              >
-                Открыть в полном размере
-              </a>
             </div>
           </div>
         ) : (
