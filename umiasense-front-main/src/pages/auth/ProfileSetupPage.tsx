@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { authApi } from '../../api';
 import { useAuthStore } from '../../store/authStore';
@@ -8,8 +8,9 @@ import PasswordInput from '../../components/common/PasswordInput';
 import { UserIcon } from '../../components/auth/icons';
 
 export default function ProfileSetupPage() {
-  const { state } = useLocation() as { state: { email: string; role: string } | null };
+  const { state } = useLocation() as { state: { email: string; role: string; registrationToken?: string } | null };
   const [name, setName] = useState('');
+  const [consent, setConsent] = useState(false);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,11 +24,12 @@ export default function ProfileSetupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim().length < 2) { toast.error('Имя слишком короткое'); return; }
-    if (password.length < 6) { toast.error('Пароль минимум 6 символов'); return; }
+    if (password.length < 8) { toast.error('Пароль минимум 8 символов'); return; }
+    if (!consent) { toast.error('Нужно согласие на обработку персональных данных'); return; }
     if (password !== confirm) { toast.error('Пароли не совпадают'); return; }
     setLoading(true);
     try {
-      const { data } = await authApi.completeRegistration({ email: state.email, name: name.trim(), password, role: state.role });
+      const { data } = await authApi.completeRegistration({ email: state.email, name: name.trim(), password, role: state.role, consent, registrationToken: state.registrationToken ?? '' });
       setAuth(data.token, data.user);
       toast.success('Добро пожаловать!');
       navigate('/children');
@@ -43,7 +45,7 @@ export default function ProfileSetupPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
 
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Ваше имя</label>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Имя и фамилия</label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><UserIcon /></span>
             <input
@@ -56,7 +58,7 @@ export default function ProfileSetupPage() {
 
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Пароль</label>
-          <PasswordInput value={password} onChange={setPassword} placeholder="Минимум 6 символов" required />
+          <PasswordInput value={password} onChange={setPassword} placeholder="Минимум 8 символов" required />
         </div>
 
         <div>
@@ -65,8 +67,17 @@ export default function ProfileSetupPage() {
           {mismatch && <p className="text-xs text-red-400 mt-1">Пароли не совпадают</p>}
         </div>
 
+        <label className="flex items-start gap-2.5 text-xs text-gray-600 leading-relaxed cursor-pointer">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[#E07628]" />
+          <span>
+            Я даю согласие на сбор и обработку моих персональных данных в соответствии с{' '}
+            <Link to="/privacy" target="_blank" className="text-[#E07628] underline">Политикой конфиденциальности</Link>{' '}
+            и Законом РК «О персональных данных и их защите».
+          </span>
+        </label>
+
         <button
-          type="submit" disabled={loading || mismatch || password.length < 6}
+          type="submit" disabled={loading || mismatch || password.length < 8 || !consent}
           className="w-full bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl py-3 font-semibold text-sm transition disabled:opacity-50 shadow-sm shadow-[#E07628]/30 mt-2"
         >
           {loading ? 'Создание аккаунта...' : 'Завершить регистрацию'}

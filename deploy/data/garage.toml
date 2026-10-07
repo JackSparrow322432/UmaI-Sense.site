@@ -1,0 +1,33 @@
+# Garage — S3-совместимое хранилище с открытым кодом, рассчитано на кластеры из 3+ узлов
+# в разных ЦОД. replication_factor = 3: каждый файл хранится на всех трёх узлах,
+# выход из строя одного узла не мешает ни чтению, ни записи.
+#
+# Одинаковый файл на трёх узлах, кроме rpc_public_addr (адрес ЭТОГО узла).
+# Секреты: openssl rand -hex 32
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+metadata_auto_snapshot_interval = "6h"
+
+replication_factor = 3
+consistency_mode = "consistent"
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "10.10.0.11:3901"   # data1; на data2 — 10.10.0.12, на data3 — 10.10.0.13
+rpc_secret = "ЗАМЕНИТЬ_openssl_rand_hex_32"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.garage.internal"
+
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".web.garage.internal"
+index = "index.html"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token = "ЗАМЕНИТЬ_openssl_rand_base64_32"
+metrics_token = "ЗАМЕНИТЬ_openssl_rand_base64_32"

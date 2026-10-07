@@ -141,7 +141,7 @@ export default function AdminArticleFormPage() {
                     <span className="text-xs text-gray-400 mt-2">Нажмите чтобы загрузить изображение</span>
                   </>
                 )}
-                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleImageUpload} disabled={uploading} />
               </label>
             )}
           </div>

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { childrenApi, invitesApi } from '../../api';
-import type { Child } from '../../types';
+import { childrenApi, enrollmentApi } from '../../api';
+import type { Assignment, Child, User } from '../../types';
+import { childFullName, formatSlots, formatDateRu } from '../../utils/enrollment';
 import { useAuthStore } from '../../store/authStore';
 
 const getAge = (dob: string) => {
@@ -45,8 +46,8 @@ function EnterCodeForm({ onSuccess }: { onSuccess: () => void }) {
     if (!code.trim()) return;
     setLoading(true);
     try {
-      const { data } = await invitesApi.use(code.trim().toUpperCase());
-      toast.success(`Доступ к профилю ${data.child.name} получен`);
+      const { data } = await enrollmentApi.activate(code.trim().toUpperCase());
+      toast.success(`Доступ к профилю ${childFullName(data.childId as Child)} получен`);
       setCode(''); setOpen(false); onSuccess();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Неверный или истёкший код');
@@ -60,14 +61,15 @@ function EnterCodeForm({ onSuccess }: { onSuccess: () => void }) {
         className="w-full flex items-center gap-3 border border-dashed border-gray-300 rounded-2xl px-4 py-3.5 text-sm font-medium text-gray-500 hover:border-[#E07628] hover:text-[#E07628] hover:bg-gray-50 transition-all"
       >
         <KeyIcon />
-        Ввести код-приглашение от родителя
+        Ввести код доступа от администратора
       </button>
     );
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 shadow-sm">
-      <p className="text-sm font-semibold text-gray-700">Введите код-приглашение</p>
+      <p className="text-sm font-semibold text-gray-700">Введите код доступа</p>
+      <p className="text-xs text-gray-400 -mt-1">Код пришёл в уведомлениях и на почту после записи ребёнка администратором</p>
       <input
         type="text" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
         placeholder="UMS-XXXX" maxLength={8} autoFocus
@@ -84,6 +86,65 @@ function EnterCodeForm({ onSuccess }: { onSuccess: () => void }) {
         </button>
       </div>
     </form>
+  );
+}
+
+/** Назначения тренера: ожидающие ввода кода и активные — с данными ребёнка и родителя */
+function TrainerAssignments({ items }: { items: Assignment[] }) {
+  if (items.length === 0) return null;
+  const pending = items.filter((a) => !a.codeUsed);
+  const active = items.filter((a) => a.codeUsed);
+
+  return (
+    <div className="space-y-3">
+      {pending.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
+          <p className="font-semibold">Новых назначений: {pending.length}</p>
+          {pending.map((a) => (
+            <p key={a._id} className="text-xs mt-1">
+              {formatSlots(a.slots)} · {formatDateRu(a.startDate)} – {formatDateRu(a.endDate)} — введите код доступа, чтобы увидеть ребёнка
+            </p>
+          ))}
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Мои ученики</p>
+          <div className="space-y-2">
+            {active.map((a) => {
+              const c = a.childId as Child;
+              const p = a.parentId as User;
+              return (
+                <div key={a._id} className="bg-white rounded-2xl border border-gray-100 p-4 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{childFullName(c)}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">ИИН: <span className="tracking-wider">{c?.iin || '—'}</span></p>
+                    </div>
+                    {c?._id && (
+                      <Link to={`/children/${c._id}`} className="text-xs text-[#E07628] font-semibold flex-shrink-0">Профиль →</Link>
+                    )}
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 mt-3 text-xs text-gray-600">
+                    <p><span className="text-gray-400">Родитель:</span> {p?.name || '—'}</p>
+                    <p><span className="text-gray-400">Телефон:</span> {a.contactPhone || '—'}</p>
+                    <p><span className="text-gray-400">Дни:</span> {formatSlots(a.slots)} ({a.durationMin} мин)</p>
+                    <p><span className="text-gray-400">Период:</span> {formatDateRu(a.startDate)} – {formatDateRu(a.endDate)}</p>
+                    <p className="sm:col-span-2">
+                      <span className="text-gray-400">Адаптивное катание:</span>{' '}
+                      {c?.adaptiveSkating?.hasExperience
+                        ? `занимался (${c.adaptiveSkating.when}) — ${c.adaptiveSkating.details}`
+                        : c?.adaptiveSkating?.hasExperience === false ? 'ранее не занимался' : '—'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -121,7 +182,7 @@ function EmptyState({ isParent }: { isParent: boolean }) {
       </div>
       <h3 className="text-base font-semibold text-gray-800 mb-2">Нет доступных профилей</h3>
       <p className="text-sm text-gray-400 leading-relaxed max-w-xs mx-auto">
-        Запросите код-приглашение у родителя и введите его выше, чтобы получить доступ к профилю ребёнка.
+        Когда администратор запишет к вам ребёнка, вы получите код доступа в уведомлениях. Введите его выше.
       </p>
     </div>
   );
@@ -131,10 +192,14 @@ export default function ChildrenPage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const { user } = useAuthStore();
   const isParent = user?.role === 'parent';
 
   const fetchChildren = () => {
+    if (user?.role === 'trainer') {
+      enrollmentApi.trainerAssignments().then(({ data }) => setAssignments(data)).catch(() => {});
+    }
     childrenApi.getAll()
       .then(({ data }) => setChildren(data))
       .catch(() => toast.error('Ошибка загрузки'))
@@ -145,7 +210,7 @@ export default function ChildrenPage() {
 
   const handleDelete = async (e: React.MouseEvent, childId: string, name: string) => {
     e.preventDefault();
-    if (!confirm(`Удалить профиль ${name}?`)) return;
+    if (!confirm(`Удалить профиль ${name}?\n\nБудут безвозвратно удалены все данные ребёнка: документы, наблюдения, прогресс. Записи на занятия будут отменены.`)) return;
     setDeleting(childId);
     try {
       await childrenApi.delete(childId);
@@ -188,6 +253,18 @@ export default function ChildrenPage() {
 
       {/* Trainer enter code */}
       {!isParent && <EnterCodeForm onSuccess={fetchChildren} />}
+      {!isParent && <TrainerAssignments items={assignments} />}
+
+      {/* Parent: запись на занятия */}
+      {isParent && children.length > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-[#FFF3EA] border border-[#E07628]/20 rounded-2xl px-4 py-3">
+          <p className="text-sm text-gray-700">Запись к тренеру — через заявку администратору</p>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Link to="/requests" className="text-xs text-gray-500 font-semibold hover:underline">Мои заявки</Link>
+            <Link to="/requests/new" className="text-xs bg-[#E07628] text-white rounded-lg px-3 py-1.5 font-semibold">Подать заявку</Link>
+          </div>
+        </div>
+      )}
 
       {/* Empty state */}
       {children.length === 0 && <EmptyState isParent={isParent} />}
@@ -210,7 +287,7 @@ export default function ChildrenPage() {
 
               {/* Info */}
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">{child.name}</p>
+                <p className="font-semibold text-gray-900 text-sm">{childFullName(child)}</p>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className="text-xs text-gray-400">{getAge(child.dateOfBirth)}</span>
                   {child.diagnosis && (

@@ -83,14 +83,17 @@ User	Roles: parent / trainer / admin. Email + OTP verification, JWT sessions.
 Child	Profile: diagnosis, triggers, fears, interests, sensory profile, goals, linked specialists (trainers).
 Emotion / Activity / DiaryEntry	Daily observations that feed the AI recommendation engine.
 Milestone / ChildMilestone	A bank of developmental milestones across domains (cognitive, motor, social, speech, self-care) and per-child achievement status — the foundation for tracking developmental progress over time.
-InviteCode	Mechanism for inviting specialists into a child's profile, with a limited validity window.
+InviteCode	Legacy parent-issued invite codes (creation is now admin-only; kept for backward compatibility).
+EnrollmentRequest	Parent's request to enroll a child: preferred weekdays/time, contact phone, comment. Status: pending / approved / cancelled.
+Assignment	Admin-created enrollment of a child with a trainer: weekly slots, duration, period and a one-time access code the trainer must enter to get access.
+Session	Concrete calendar session (date + start/end time as local strings) generated from an assignment; can be cancelled individually by the admin.
 Recommendation	AI-generated recommendation sets, tied to a child and a point in time.
 Notification	In-app notification feed (new recommendations, invites, milestones, etc.).
 Article	Educational content, managed through the admin panel.
 Roles
-Parent — creates and manages a child's profile, logs observations, invites specialists, receives recommendations.
-Trainer (specialist) — joins a child's profile via an invite code, logs observations from their side.
-Admin — manages users and published articles through a dedicated admin panel (/admin). The admin account is not self-registered — it is seeded automatically on server start from ADMIN_EMAIL / ADMIN_PASSWORD environment variables.
+Parent — creates and manages a child's profile (last name, IIN and prior adaptive-skating experience are required), submits enrollment requests with preferred days, sees the schedule, logs observations, receives recommendations.
+Trainer (specialist) — is assigned to a child by the admin, receives an access code (in-app notification + email), enters it to open the child's card (child & parent names, IIN, days) and profile, logs observations from their side.
+Admin — processes enrollment requests (assigns children to trainers on specific days, cancels requests/assignments/single sessions), sees the full schedule, manages users and published articles through a dedicated admin panel (/admin). The admin account is not self-registered — it is seeded automatically on server start from ADMIN_EMAIL / ADMIN_PASSWORD environment variables.
 Project Structure
 .
 ├── api/
@@ -144,6 +147,9 @@ ADMIN_PASSWORD=your_admin_password
 # AI provider
 OPENAI_API_KEY=your_openai_api_key
 
+# Time zone used to decide which sessions are "past" (optional)
+APP_TZ=Asia/Almaty
+
 If CLOUDINARY_* variables are not set, image uploads fall back to local disk storage (suitable for local development only — not for serverless hosting). If OPENAI_API_KEY is not set, the recommendation engine falls back to built-in baseline content instead of failing.
 
 Local Development
@@ -163,6 +169,8 @@ cd umiasense-front-main
 npm install
 npm run dev              # http://localhost:5173
 Deployment
+
+Production hosting in Kazakhstan (personal-data localization, fault tolerance): see DEPLOY_FREEDOM_CLOUD.md and the deploy/ folder.
 
 The project is deployed as a single Vercel project (static frontend + serverless API), configured via a root-level vercel.json:
 
@@ -190,4 +198,5 @@ Notifications	/api/notifications
 Image uploads	/api/upload
 Admin (users, articles management)	/api/admin
 Public articles	/api/articles
+Enrollment requests, trainer assignments, schedule	/api/enrollment
 Health check	/api/health

@@ -5,11 +5,13 @@ import Child from '../models/Child';
 import Emotion from '../models/Emotion';
 import Activity from '../models/Activity';
 import DiaryEntry from '../models/DiaryEntry';
+import AuditLog from '../models/AuditLog';
+import { logAccess } from '../utils/audit';
 
-// GET /api/admin/users
+// GET /api/admin/users — все пользователи, включая администраторов
 export const getUsers = async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const users = await User.find({ role: { $ne: 'admin' } }).sort({ createdAt: -1 });
+    const users = await User.find({}).sort({ createdAt: -1 });
     res.json(users);
   } catch {
     res.status(500).json({ message: 'Server error' });
@@ -51,6 +53,7 @@ export const getChildDetail = async (req: AuthRequest, res: Response): Promise<v
       .populate('trainers', 'name email');
 
     if (!child) { res.status(404).json({ message: 'Child not found' }); return; }
+    await logAccess(req, { action: 'child.view', childId: child._id });
 
     const [emotions, activities, diary] = await Promise.all([
       Emotion.find({ childId: child._id })
@@ -74,6 +77,67 @@ export const getChildDetail = async (req: AuthRequest, res: Response): Promise<v
     };
 
     res.json({ child, emotions, activities, diary, stats });
+  } catch {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /api/admin/children/:childId/audit — журнал доступа к данным ребёнка
+export const getChildAudit = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const entries = await AuditLog.find({ childId: req.params['childId'] })
+      .populate('userId', 'name email role')
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean();
+    res.json(entries);
+  } catch {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// PUT /api/admin/users/:id/admin  { isAdmin: boolean }
+// Назначить пользователя администратором или снять права. Публичной регистрации админа нет —
+// новых администраторов назначает только действующий администратор.
+export const setAdminRole = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const isAdmin = req.body?.isAdmin;
+    if (typeof isAdmin !== 'boolean') {
+      res.status(400).json({ message: 'Укажите isAdmin: true или false' });
+      return;
+    }
+    const user = await User.findById(req.params['id']);
+    if (!user) { res.status(404).json({ message: 'Пользователь не найден' }); return; }
+
+    if (isAdmin) {
+      if (user.role === 'admin') { res.json(user); return; }
+      if (!user.isVerified) {
+        res.status(400).json({ message: 'Пользователь не подтвердил email — назначить администратором нельзя' });
+        return;
+      }
+      user.formerRole = user.role as 'parent' | 'trainer';
+      user.role = 'admin';
+      await user.save();
+      await logAccess(req, { action: 'admin.grant', meta: { targetUserId: String(user._id), email: user.email } });
+      res.json(user);
+      return;
+    }
+
+    if (user.role !== 'admin') { res.json(user); return; }
+    if (String(user._id) === req.user?.id) {
+      res.status(400).json({ message: 'Нельзя снять права администратора с самого себя' });
+      return;
+    }
+    const admins = await User.countDocuments({ role: 'admin' });
+    if (admins <= 1) {
+      res.status(400).json({ message: 'Должен остаться хотя бы один администратор' });
+      return;
+    }
+    user.role = user.formerRole ?? 'parent';
+    user.formerRole = undefined;
+    await user.save();
+    await logAccess(req, { action: 'admin.revoke', meta: { targetUserId: String(user._id), email: user.email } });
+    res.json(user);
   } catch {
     res.status(500).json({ message: 'Server error' });
   }

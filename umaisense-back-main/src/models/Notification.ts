@@ -6,7 +6,10 @@ const notificationSchema = new Schema<INotification>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: {
       type: String,
-      enum: ['diary_entry', 'invite_accepted', 'ai_recommendation', 'emotion_reminder', 'new_article', 'new_task'],
+      enum: [
+        'diary_entry', 'invite_accepted', 'ai_recommendation', 'emotion_reminder', 'new_article', 'new_task',
+        'enrollment_update', 'trainer_assigned', 'session_cancelled',
+      ],
       required: true,
     },
     message: { type: String, required: true },

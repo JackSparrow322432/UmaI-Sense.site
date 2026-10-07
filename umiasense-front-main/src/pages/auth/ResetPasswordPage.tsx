@@ -20,7 +20,7 @@ export default function ResetPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (code.length !== 6) { toast.error('Введите 6-значный код'); return; }
-    if (password.length < 6) { toast.error('Пароль минимум 6 символов'); return; }
+    if (password.length < 8) { toast.error('Пароль минимум 8 символов'); return; }
     if (password !== confirm) { toast.error('Пароли не совпадают'); return; }
     setLoading(true);
     try {
@@ -50,7 +50,7 @@ export default function ResetPasswordPage() {
 
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Новый пароль</label>
-          <PasswordInput value={password} onChange={setPassword} placeholder="Минимум 6 символов" required />
+          <PasswordInput value={password} onChange={setPassword} placeholder="Минимум 8 символов" required />
         </div>
 
         <div>
@@ -60,7 +60,7 @@ export default function ResetPasswordPage() {
         </div>
 
         <button
-          type="submit" disabled={loading || mismatch || code.length !== 6 || password.length < 6}
+          type="submit" disabled={loading || mismatch || code.length !== 6 || password.length < 8}
           className="w-full bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl py-3 font-semibold text-sm transition disabled:opacity-50 shadow-sm shadow-[#E07628]/30"
         >
           {loading ? 'Сохранение...' : 'Сохранить новый пароль'}

@@ -100,6 +100,8 @@ export default function AdminChildDetailPage() {
   const [diary,      setDiary]      = useState<DiaryEntry[]>([]);
   const [stats,      setStats]      = useState({ totalEmotions: 0, totalActivities: 0, totalDiary: 0 });
   const [loading,    setLoading]    = useState(true);
+  const [audit,      setAudit]      = useState<Awaited<ReturnType<typeof adminApi.getChildAudit>>['data']>([]);
+  const [showAudit,  setShowAudit]  = useState(false);
 
   useEffect(() => {
     if (!childId) return;
@@ -152,8 +154,18 @@ export default function AdminChildDetailPage() {
               : child.name[0]}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-gray-900">{child.name}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{getAge(child.dateOfBirth)}</p>
+            <h2 className="text-base font-bold text-gray-900">{[child.name, child.lastName].filter(Boolean).join(' ')}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {getAge(child.dateOfBirth)}
+              {child.iin && <> · ИИН <span className="tracking-wider">{child.iin}</span></>}
+            </p>
+            {child.adaptiveSkating && (
+              <p className="text-xs text-gray-500 mt-1">
+                Адаптивное катание: {child.adaptiveSkating.hasExperience
+                  ? `занимался (${child.adaptiveSkating.when}) — ${child.adaptiveSkating.details}`
+                  : 'ранее не занимался'}
+              </p>
+            )}
             {child.diagnosis && (
               <span className="inline-block mt-1.5 text-xs bg-[#FFF3EA] text-[#E07628] px-2 py-0.5 rounded-full font-semibold">
                 {child.diagnosis}
@@ -316,6 +328,38 @@ export default function AdminChildDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Журнал доступа к персональным и медицинским данным */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <button
+          onClick={() => {
+            if (!showAudit && childId) adminApi.getChildAudit(childId).then(({ data }) => setAudit(data)).catch(() => {});
+            setShowAudit((v) => !v);
+          }}
+          className="text-sm font-semibold text-gray-900"
+        >
+          🔒 Журнал доступа {showAudit ? '▲' : '▼'}
+        </button>
+        {showAudit && (
+          audit.length === 0 ? (
+            <p className="text-sm text-gray-400 mt-3">Записей нет</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-gray-100 text-sm">
+              {audit.map((e) => (
+                <li key={e._id} className="py-2 flex justify-between gap-3">
+                  <span>
+                    <b className="font-medium">{e.userId?.name || '—'}</b>{' '}
+                    <span className="text-gray-400">({e.userId?.email || e.role})</span> · {e.action}
+                  </span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">
+                    {new Date(e.createdAt).toLocaleString('ru-RU')} {e.ip && `· ${e.ip}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+      </div>
     </div>
   );
 }

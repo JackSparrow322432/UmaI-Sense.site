@@ -1,0 +1,11 @@
+node_modules/
+dist/
+uploads/
+*.log
+# Секреты — никогда в репозиторий
+.env
+.env.*
+!.env.example
+deploy/**/.env
+backup.env
+mongo-keyfile

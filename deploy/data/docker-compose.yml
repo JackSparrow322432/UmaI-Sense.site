@@ -1,0 +1,46 @@
+# Запускается на КАЖДОМ узле данных (data1, data2, data3): MongoDB + Garage (S3).
+# Перед запуском:
+#   • /opt/umaisense-data/mongo-keyfile — общий для 3 узлов ключ (openssl rand -base64 756), chmod 400, chown 999:999
+#   • /opt/umaisense-data/garage.toml — из deploy/data/garage.toml, с адресом ЭТОГО узла в rpc_public_addr
+#   • диски с данными смонтированы в /srv/mongo и /srv/garage — ОБЯЗАТЕЛЬНО зашифрованные
+#     (шифрование дисков Freedom Cloud или LUKS): Garage не шифрует файлы сам
+#   • PRIVATE_IP — адрес этого узла в частной сети (например 10.10.0.11), в файле .env рядом
+#     Порты публикуются только на частный адрес: Docker обходит ufw, поэтому 0.0.0.0 открыл бы их шире
+services:
+  mongo:
+    image: mongo:7.0
+    command:
+      - --replSet=rs0
+      - --keyFile=/etc/mongo/keyfile
+      - --bind_ip_all
+      - --wiredTigerCacheSizeGB=2
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - /srv/mongo:/data/db
+      - /opt/umaisense-data/mongo-keyfile:/etc/mongo/keyfile:ro
+      - ./init-replica-set.js:/init/init-replica-set.js:ro
+    ports:
+      - "${PRIVATE_IP}:27017:27017"   # только частная сеть
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  garage:
+    # Проверьте последнюю стабильную версию: https://garagehq.deuxfleurs.fr/
+    image: dxflrs/garage:v2.1.0
+    volumes:
+      - /opt/umaisense-data/garage.toml:/etc/garage.toml:ro
+      - /srv/garage/meta:/var/lib/garage/meta
+      - /srv/garage/data:/var/lib/garage/data
+    ports:
+      - "${PRIVATE_IP}:3900:3900"   # S3 API      (частная сеть)
+      - "${PRIVATE_IP}:3901:3901"   # связь узлов (частная сеть)
+      - "${PRIVATE_IP}:3902:3902"   # веб-раздача публичного бакета (для lb1)
+      - "127.0.0.1:3903:3903"       # admin API   (только с самого узла)
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }

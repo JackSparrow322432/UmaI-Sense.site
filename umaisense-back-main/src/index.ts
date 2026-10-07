@@ -1,79 +1,56 @@
 import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
 import mongoose from 'mongoose';
-import path from 'path';
+import { createApp, connectDB } from './createApp';
+import { assertProductionEnv } from './utils/env';
+import { sweepAbandonedUploads } from './controllers/documents.controller';
 
-import authRoutes from './routes/auth.routes';
-import childrenRoutes from './routes/children.routes';
-import invitesRoutes from './routes/invites.routes';
-import emotionsRoutes from './routes/emotions.routes';
-import activitiesRoutes from './routes/activities.routes';
-import diaryRoutes from './routes/diary.routes';
-import milestonesRoutes from './routes/milestones.routes';
-import recommendationsRoutes from './routes/recommendations.routes';
-import notificationsRoutes from './routes/notifications.routes';
-import uploadRoutes from './routes/upload.routes';
-import adminRoutes from './routes/admin.routes';
-import articlesRoutes from './routes/articles.routes';
-import documentsRoutes from './routes/documents.routes';
-import tasksRoutes from './routes/tasks.routes';
-import { seedMilestones } from './utils/seedMilestones';
-import { seedAdmin } from './utils/seedAdmin';
-import { createIndexes } from './utils/createIndexes';
+/**
+ * Точка входа для постоянного сервера (VM / Docker / Kubernetes в РК).
+ * Тот же createApp(), что и в serverless-версии (api/index.ts), — одна логика на оба режима.
+ */
 
-const app = express();
+assertProductionEnv();
 
-const allowedOrigins = [
-  'https://umai-sense.netlify.app',
-  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : []),
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-];
+const app = createApp();
+const PORT = Number(process.env.PORT) || 5000;
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-      else callback(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-  })
-);
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+const start = async () => {
+  await connectDB();
 
-app.use('/api/auth', authRoutes);
-app.use('/api/children', childrenRoutes);
-app.use('/api/invites', invitesRoutes);
-app.use('/api/emotions', emotionsRoutes);
-app.use('/api/activities', activitiesRoutes);
-app.use('/api/diary', diaryRoutes);
-app.use('/api/milestones', milestonesRoutes);
-app.use('/api/recommendations', recommendationsRoutes);
-app.use('/api/notifications', notificationsRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/articles', articlesRoutes);
-app.use('/api/documents', documentsRoutes);
-app.use('/api/tasks', tasksRoutes);
+  const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  // Держим соединения дольше, чем таймаут простоя балансировщика (обычно 60 с) — иначе редкие 502
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  // Каждые 15 минут удаляем брошенные загрузки документов (запись + файл в хранилище)
+  const sweeper = setInterval(() => {
+    sweepAbandonedUploads().catch((err) => console.error('[sweep] failed:', err));
+  }, 15 * 60 * 1000);
+  sweeper.unref();
 
-const PORT = process.env.PORT || 5000;
+  // Корректная остановка при деплое/перезапуске: дорабатываем текущие запросы, закрываем БД
+  let stopping = false;
+  const shutdown = (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`${signal} received — shutting down gracefully`);
+    server.close(async () => {
+      await mongoose.disconnect().catch(() => {});
+      console.log('Shutdown complete');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 15_000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+};
 
-mongoose
-  .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/umai_sense')
-  .then(async () => {
-    console.log('MongoDB connected');
-    await seedMilestones();
-    await seedAdmin();
-    await createIndexes();
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-  })
-  .catch((err: Error) => {
-    console.error('DB connection error:', err.message);
-    process.exit(1);
-  });
+process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason));
+
+start().catch((err: Error) => {
+  console.error('Startup error:', err.message);
+  process.exit(1);
+});

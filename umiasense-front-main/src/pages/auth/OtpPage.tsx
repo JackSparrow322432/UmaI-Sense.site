@@ -30,8 +30,8 @@ export default function OtpPage() {
     if (code.length !== 6) { toast.error('Введите 6-значный код'); return; }
     setLoading(true);
     try {
-      await authApi.verifyOtp(state.email, code);
-      navigate('/setup', { state: { email: state.email, role: state.role } });
+      const { data } = await authApi.verifyOtp(state.email, code);
+      navigate('/setup', { state: { email: state.email, role: state.role, registrationToken: data.registrationToken } });
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Неверный код');
       setCode('');

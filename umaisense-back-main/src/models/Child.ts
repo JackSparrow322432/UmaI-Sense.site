@@ -1,10 +1,12 @@
-import { Schema, model, Types } from 'mongoose';
+import { Schema, model } from 'mongoose';
 import { IChild } from '../types';
 
 const childSchema = new Schema<IChild>(
   {
     parentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     name: { type: String, required: true },
+    lastName: { type: String, trim: true },
+    iin: { type: String, trim: true },
     dateOfBirth: { type: Date, required: true },
     photo: { type: String },
     diagnosis: { type: String },
@@ -27,6 +29,12 @@ const childSchema = new Schema<IChild>(
         description: { type: String },
       },
     ],
+    // Был ли ребёнок ранее на адаптивном катании (обязательно для новых профилей)
+    adaptiveSkating: {
+      hasExperience: { type: Boolean },
+      when: { type: String, trim: true },
+      details: { type: String, trim: true },
+    },
     trainers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true }
