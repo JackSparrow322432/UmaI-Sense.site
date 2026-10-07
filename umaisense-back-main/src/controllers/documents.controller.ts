@@ -1,20 +1,30 @@
 import { Response } from 'express';
-import OpenAI from 'openai';
+import { randomUUID } from 'crypto';
 import { AuthRequest } from '../types';
 import Child from '../models/Child';
 import DocumentModel from '../models/Document';
-import { uploadImage } from '../utils/upload';
+import {
+  activeProvider, isProviderAvailable, maxDocumentSize, prepareUpload, getStoredSize,
+  getDownloadUrl as storageDownloadUrl, readStoredHead, removeStored, StorageProvider,
+} from '../utils/documentStorage';
+import { DOCUMENT_TYPES, matchesSignature, extFor, cleanFileName } from '../utils/fileTypes';
+import { logAccess } from '../utils/audit';
 
-// ─── OpenAI client (only initialised when key is present) ────────────────────
+/**
+ * Медицинские и личные документы ребёнка.
+ *
+ * Файлы хранятся в ЗАКРЫТОМ хранилище: S3 в Казахстане, а пока проект на Vercel —
+ * закрытые файлы Cloudinary (см. utils/documentStorage.ts). Браузер загружает файл напрямую
+ * в хранилище по одноразовой подписи (сервер не пропускает через себя файл), а скачать
+ * его можно только по ссылке на 5 минут, которую API выдаёт после проверки прав.
+ * Каждое открытие документа записывается в журнал доступа.
+ *
+ * ИИ-разбор документов отключён: медицинские документы не передаются за рубеж.
+ */
 
-const getOpenAI = (): OpenAI | null => {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
-  return new OpenAI({ apiKey: key });
-};
+const UPLOAD_WINDOW_MS = 30 * 60 * 1000; // незавершённая загрузка удаляется через 30 минут
 
-// ─── Access helper — same rule as children.controller: parent or linked trainer ──
-
+// Доступ: родитель или прикреплённый тренер (как в children.controller)
 const getChildWithAccess = async (childId: string, userId?: string) => {
   const child = await Child.findById(childId);
   if (!child) return null;
@@ -24,50 +34,30 @@ const getChildWithAccess = async (childId: string, userId?: string) => {
   return hasAccess ? child : null;
 };
 
-// ─── AI explanation ───────────────────────────────────────────────────────────
+// Старые документы (до появления поля) лежат в S3, если у них есть storageKey
+const providerOf = (doc: { storageProvider?: string }): StorageProvider =>
+  doc.storageProvider === 'cloudinary' ? 'cloudinary' : 's3';
 
-const explainDocumentImage = async (fileUrl: string): Promise<{ status: 'done' | 'failed'; text: string }> => {
-  const client = getOpenAI();
-  if (!client) {
-    return {
-      status: 'failed',
-      text: 'Автоматическое распознавание документа сейчас недоступно (не настроен ИИ-сервис). Файл сохранён, вы можете открыть его и прочитать вручную.',
-    };
+const storageUnavailable = (res: Response) =>
+  res.status(503).json({ message: 'Хранилище документов не настроено. Обратитесь к администратору.' });
+
+// Наружу не отдаём ключ хранилища
+const PUBLIC_FIELDS = '-storageKey -storageProvider -uploadExpiresAt';
+
+/**
+ * Удаляет незавершённые загрузки (файл мог дойти до хранилища, а /complete — нет).
+ * Запускается по таймеру в index.ts и заодно при каждой новой загрузке.
+ */
+export const sweepAbandonedUploads = async (limit = 100): Promise<number> => {
+  const stale = await DocumentModel.find({ status: 'uploading', uploadExpiresAt: { $lt: new Date() } })
+    .limit(limit)
+    .select('storageKey storageProvider');
+  for (const d of stale) {
+    const p = providerOf(d);
+    if (d.storageKey && isProviderAvailable(p)) await removeStored(p, d.storageKey).catch(() => {});
+    await d.deleteOne();
   }
-
-  try {
-    const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      max_tokens: 900,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Ты помощник, который читает изображения документов (медицинские справки, заключения специалистов, рецепты, выписки и т.п.), связанных с ребёнком с особенностями развития, и подробно объясняет их содержание родителю простым, понятным языком. Отвечай только на русском языке, обычным печатным связным текстом, разбитым на абзацы. Не используй markdown, звёздочки, списки с маркерами и заголовки — только простой читаемый текст.',
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: 'Прочитай этот документ на изображении и подробно объясни его содержание: что это за документ, какие ключевые данные, диагнозы, рекомендации или выводы в нём указаны, и что это может означать для ребёнка и его развития. Если текст на изображении плохо читается или это не документ, честно об этом напиши.',
-            },
-            { type: 'image_url', image_url: { url: fileUrl } },
-          ],
-        },
-      ],
-    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
-
-    const text = completion.choices[0]?.message?.content?.trim();
-    if (!text) throw new Error('Empty AI response');
-    return { status: 'done', text };
-  } catch (err) {
-    console.error('[Documents] AI explain error:', err);
-    return {
-      status: 'failed',
-      text: 'Не удалось автоматически распознать документ. Файл сохранён, попробуйте загрузить более чёткое фото.',
-    };
-  }
+  return stale.length;
 };
 
 // ─── GET /api/documents/:childId ───────────────────────────────────────────────
@@ -79,7 +69,8 @@ export const listDocuments = async (req: AuthRequest, res: Response): Promise<vo
       res.status(403).json({ message: 'Доступ запрещён' });
       return;
     }
-    const documents = await DocumentModel.find({ childId: child._id })
+    const documents = await DocumentModel.find({ childId: child._id, status: { $ne: 'uploading' } })
+      .select(PUBLIC_FIELDS)
       .sort({ createdAt: -1 })
       .populate('uploadedBy', 'name role');
     res.json(documents);
@@ -88,42 +79,153 @@ export const listDocuments = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// ─── POST /api/documents/:childId  (multipart, field name "file") ─────────────
+// ─── POST /api/documents/:childId/upload-url  { fileName, mimeType, size } ─────
+// Шаг 1: проверяем тип и размер, создаём запись и выдаём одноразовую ссылку на загрузку.
 
-export const uploadDocument = async (req: AuthRequest, res: Response): Promise<void> => {
+export const createUploadUrl = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const provider = activeProvider();
+    if (!provider) { storageUnavailable(res); return; }
+
+    const child = await getChildWithAccess(req.params['childId'] as string, req.user?.id);
+    if (!child) {
+      res.status(403).json({ message: 'Доступ запрещён' });
+      return;
+    }
+
+    const mimeType = typeof req.body?.mimeType === 'string' ? req.body.mimeType : '';
+    const size = Number(req.body?.size);
+    const fileName = cleanFileName(req.body?.fileName);
+
+    if (!DOCUMENT_TYPES[mimeType]) {
+      res.status(400).json({ message: 'Можно загружать PDF, Word (DOC, DOCX) или фото (JPG, PNG, HEIC)' });
+      return;
+    }
+    if (!Number.isInteger(size) || size <= 0) {
+      res.status(400).json({ message: 'Пустой файл' });
+      return;
+    }
+    const maxSize = maxDocumentSize(provider);
+    if (size > maxSize) {
+      res.status(400).json({ message: `Файл больше ${Math.round(maxSize / 1024 / 1024)} МБ` });
+      return;
+    }
+
+    void sweepAbandonedUploads(20).catch(() => {});
+
+    const storageKey = `documents/${child._id}/${randomUUID()}.${extFor(DOCUMENT_TYPES, mimeType)}`;
+    const document = await DocumentModel.create({
+      childId: child._id,
+      uploadedBy: req.user?.id,
+      storageKey,
+      storageProvider: provider,
+      fileName,
+      mimeType,
+      size,
+      status: 'uploading',
+      uploadExpiresAt: new Date(Date.now() + UPLOAD_WINDOW_MS),
+      aiStatus: 'disabled',
+    });
+
+    const target = await prepareUpload(provider, storageKey, mimeType, size);
+    res.status(201).json({ documentId: document._id, ...target });
+  } catch (err) {
+    console.error('[Documents] upload-url error:', err);
+    res.status(500).json({ message: 'Ошибка подготовки загрузки' });
+  }
+};
+
+// ─── POST /api/documents/:childId/:documentId/complete ─────────────────────────
+// Шаг 2: файл загружен — проверяем, что он реально есть, нужного размера и формата.
+
+export const completeUpload = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const child = await getChildWithAccess(req.params['childId'] as string, req.user?.id);
     if (!child) {
       res.status(403).json({ message: 'Доступ запрещён' });
       return;
     }
-    if (!req.file) {
-      res.status(400).json({ message: 'Файл не загружен' });
+    const document = await DocumentModel.findOne({
+      _id: req.params['documentId'], childId: child._id, uploadedBy: req.user?.id, status: 'uploading',
+    });
+    if (!document || !document.storageKey) {
+      res.status(404).json({ message: 'Загрузка не найдена или устарела' });
       return;
     }
 
-    const fileUrl = await uploadImage(req.file);
+    const provider = providerOf(document);
+    if (!isProviderAvailable(provider)) { storageUnavailable(res); return; }
 
-    const document = await DocumentModel.create({
-      childId: child._id,
-      uploadedBy: req.user?.id,
-      fileUrl,
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      aiStatus: 'pending',
-    });
+    const reject = async (message: string) => {
+      await removeStored(provider, document.storageKey as string).catch(() => {});
+      await document.deleteOne();
+      res.status(400).json({ message });
+    };
 
-    // Читаем изображение и составляем разъяснение сразу же (синхронно, чтобы
-    // не полагаться на фоновые задачи, недоступные в серверлесс-окружении).
-    const { status, text } = await explainDocumentImage(fileUrl);
-    document.aiStatus = status;
-    document.aiExplanation = text;
+    let storedSize: number;
+    try {
+      storedSize = await getStoredSize(provider, document.storageKey);
+    } catch {
+      res.status(400).json({ message: 'Файл не загрузился в хранилище. Попробуйте ещё раз.' });
+      return;
+    }
+    if (storedSize !== document.size || storedSize > maxDocumentSize(provider)) {
+      await reject('Размер файла не совпадает с заявленным');
+      return;
+    }
+    const firstBytes = await readStoredHead(provider, document.storageKey);
+    if (!matchesSignature(DOCUMENT_TYPES, document.mimeType, firstBytes)) {
+      await reject('Содержимое файла не соответствует формату (PDF, Word или фото)');
+      return;
+    }
+
+    document.status = 'ready';
+    document.uploadExpiresAt = undefined;
     await document.save();
+    await logAccess(req, { action: 'document.upload', childId: child._id, documentId: document._id });
 
-    res.status(201).json(document);
+    const saved = await DocumentModel.findById(document._id).select(PUBLIC_FIELDS).populate('uploadedBy', 'name role');
+    res.json(saved);
   } catch (err) {
-    console.error('[Documents] upload error:', err);
-    res.status(500).json({ message: 'Ошибка загрузки документа' });
+    console.error('[Documents] complete error:', err);
+    res.status(500).json({ message: 'Ошибка сохранения документа' });
+  }
+};
+
+// ─── GET /api/documents/:childId/:documentId/download?inline=1 ─────────────────
+// Одноразовая ссылка на 5 минут. Каждый просмотр пишется в журнал доступа.
+
+export const getDownloadUrl = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const child = await getChildWithAccess(req.params['childId'] as string, req.user?.id);
+    if (!child) {
+      res.status(403).json({ message: 'Доступ запрещён' });
+      return;
+    }
+    const document = await DocumentModel.findOne({ _id: req.params['documentId'], childId: child._id, status: { $ne: 'uploading' } });
+    if (!document) {
+      res.status(404).json({ message: 'Документ не найден' });
+      return;
+    }
+
+    let url: string;
+    if (document.storageKey) {
+      const provider = providerOf(document);
+      if (!isProviderAvailable(provider)) { storageUnavailable(res); return; }
+      url = await storageDownloadUrl(provider, document.storageKey, document.fileName, req.query['inline'] === '1');
+    } else if (document.fileUrl) {
+      // Старый документ, ещё не перенесённый скриптом migrate:files
+      url = document.fileUrl;
+    } else {
+      res.status(404).json({ message: 'Файл документа не найден' });
+      return;
+    }
+
+    await logAccess(req, { action: 'document.view', childId: child._id, documentId: document._id });
+    res.json({ url, expiresIn: 300 });
+  } catch (err) {
+    console.error('[Documents] download error:', err);
+    res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
 
@@ -147,7 +249,12 @@ export const deleteDocument = async (req: AuthRequest, res: Response): Promise<v
       res.status(403).json({ message: 'Доступ запрещён' });
       return;
     }
+    if (document.storageKey) {
+      const provider = providerOf(document);
+      if (isProviderAvailable(provider)) await removeStored(provider, document.storageKey);
+    }
     await document.deleteOne();
+    await logAccess(req, { action: 'document.delete', childId: child._id, documentId: document._id, meta: { fileName: document.fileName } });
     res.json({ message: 'Документ удалён' });
   } catch {
     res.status(500).json({ message: 'Ошибка сервера' });

@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { AuthRequest } from '../types';
 import Recommendation from '../models/Recommendation';
 import Child from '../models/Child';
+import User from '../models/User';
 import Emotion from '../models/Emotion';
 import Activity from '../models/Activity';
 import DiaryEntry from '../models/DiaryEntry';
@@ -46,6 +47,35 @@ const TAG_RU: Record<string, string> = {
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
+/**
+ * Промпт для внешнего ИИ-сервиса (OpenAI, за пределами РК). Из него убраны имя, фамилия,
+ * ИИН и дата рождения ребёнка. В свободном тексте (дневник, заметки) скрываются имена
+ * ребёнка, родителя и тренеров (в любых падежах — по основе слова), ИИН, телефоны и email.
+ * Полной гарантии обезличивания свободного текста это не даёт — см. политику конфиденциальности.
+ */
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const namePatterns = (names: string[]): RegExp[] =>
+  names
+    .flatMap((n) => String(n ?? '').split(/\s+/))
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 3)
+    // основа слова + до 2 букв падежного окончания: Иван → Ивана, Иваном; Алия → Али: Алии, Алией.
+    // Ограничение окончания не даёт задеть обычные слова (Иван ≠ Иваново).
+    .map((w) => (w.length >= 4 && /[аяйьеиоуыюэaeiouy]$/i.test(w) ? w.slice(0, -1) : w))
+    .map((stem) => new RegExp(`(?<![\\p{L}])${escapeRe(stem)}\\p{L}{0,2}(?![\\p{L}])`, 'giu'));
+
+let scrubPatterns: RegExp[] = [];
+
+const scrub = (text: string, _child?: any): string => {
+  let t = String(text ?? '')
+    .replace(/\b\d{12}\b/g, '[ИИН]')
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[email]')
+    .replace(/(\+?\d[\d\s()-]{8,}\d)/g, '[телефон]');
+  for (const re of scrubPatterns) t = t.replace(re, '[имя]');
+  return t;
+};
+
 const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[]): string => {
   const L: string[] = [];
 
@@ -53,15 +83,15 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
   L.push('Составь персональные практические рекомендации для родителя на основе реальных данных о ребёнке.');
   L.push('');
   L.push('=== ПРОФИЛЬ РЕБЁНКА ===');
-  L.push(`Имя: ${child.name}`);
+  // Имя, фамилия, ИИН и дата рождения в ИИ не передаются — только обезличенный профиль
   L.push(`Возраст: ${getAge(child.dateOfBirth)}`);
   if (child.diagnosis)           L.push(`Диагноз: ${child.diagnosis}`);
   if (child.communicationMethod) L.push(`Способ коммуникации: ${child.communicationMethod}`);
-  if (child.triggers?.length)    L.push(`Триггеры: ${child.triggers.join(', ')}`);
-  if (child.fears?.length)       L.push(`Страхи: ${child.fears.join(', ')}`);
-  if (child.interests?.length)   L.push(`Интересы: ${child.interests.join(', ')}`);
-  if (child.calmingActivities?.length) L.push(`Успокаивающие активности: ${child.calmingActivities.join(', ')}`);
-  if (child.behavioralNotes)     L.push(`Поведенческие заметки: ${child.behavioralNotes}`);
+  if (child.triggers?.length)    L.push(`Триггеры: ${scrub(child.triggers.join(', '))}`);
+  if (child.fears?.length)       L.push(`Страхи: ${scrub(child.fears.join(', '))}`);
+  if (child.interests?.length)   L.push(`Интересы: ${scrub(child.interests.join(', '))}`);
+  if (child.calmingActivities?.length) L.push(`Успокаивающие активности: ${scrub(child.calmingActivities.join(', '))}`);
+  if (child.behavioralNotes)     L.push(`Поведенческие заметки: ${scrub(child.behavioralNotes, child)}`);
   const sp = child.sensoryProfile;
   if (sp) {
     const parts = [];
@@ -75,7 +105,7 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
     L.push('');
     L.push('=== ЭМОЦИИ (последние 7 дней) ===');
     emotions.forEach((e) => {
-      const comment = e.comment ? ` — «${e.comment}»` : '';
+      const comment = e.comment ? ` — «${scrub(e.comment, child)}»` : '';
       L.push(`- ${MOOD_RU[e.mood] ?? e.mood} (${e.intensity}/5)${comment} · ${daysAgoLabel(e.createdAt)}`);
     });
   }
@@ -85,7 +115,7 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
     L.push('=== АКТИВНОСТИ (последние 10) ===');
     activities.forEach((a) => {
       const dur = a.duration ? `, ${a.duration} мин` : '';
-      const notes = a.notes ? ` — «${a.notes}»` : '';
+      const notes = a.notes ? ` — «${scrub(a.notes, child)}»` : '';
       L.push(`- ${a.name} (${CAT_RU[a.category] ?? a.category}${dur})${notes} · ${daysAgoLabel(a.date)}`);
     });
   }
@@ -94,7 +124,7 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
     L.push('');
     L.push('=== ДНЕВНИК НАБЛЮДЕНИЙ (последние 5) ===');
     diary.forEach((d) => {
-      L.push(`- [${TAG_RU[d.tag] ?? d.tag}] «${d.text}» · ${daysAgoLabel(d.createdAt)}`);
+      L.push(`- [${TAG_RU[d.tag] ?? d.tag}] «${scrub(d.text, child)}» · ${daysAgoLabel(d.createdAt)}`);
     });
   }
 
@@ -168,6 +198,9 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
     const openai = getOpenAI();
 
     if (openai) {
+      // Имена для скрытия в свободном тексте: ребёнок, родитель, тренеры
+      const people = await User.find({ _id: { $in: [child.parentId, ...(child.trainers ?? [])] } }).select('name').lean();
+      scrubPatterns = namePatterns([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
       const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary);
 
       const completion = await openai.chat.completions.create({

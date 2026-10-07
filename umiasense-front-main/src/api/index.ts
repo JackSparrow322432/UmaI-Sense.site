@@ -1,19 +1,21 @@
 
 import api from './axios';
+import type { UploadTarget } from '../utils/directUpload';
 import type {
   User, Child, Emotion, Activity, DiaryEntry,
   Milestone, ChildMilestone, Recommendation,
   Notification, InviteCode, MoodType,
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
-  Task, TaskRating, TaskSubmissionAdmin,
+  Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry,
+  EnrollmentRequest, Assignment, Session, ScheduleSlot, Weekday, RequestStatus,
 } from '../types';
 
 export const authApi = {
   sendOtp: (email: string, role: string) => api.post('/auth/send-otp', { email, role }),
   resendOtp: (email: string) => api.post('/auth/resend-otp', { email }),
   verifyOtp: (email: string, code: string) =>
-    api.post<{ verified: boolean; email: string }>('/auth/verify-otp', { email, code }),
-  completeRegistration: (data: { email: string; name: string; password: string; role: string }) =>
+    api.post<{ verified: boolean; email: string; registrationToken: string }>('/auth/verify-otp', { email, code }),
+  completeRegistration: (data: { email: string; name: string; password: string; role: string; consent: boolean; registrationToken: string }) =>
     api.post<{ token: string; user: User }>('/auth/complete-registration', data),
   login: (email: string, password: string) =>
     api.post<{ token: string; user: User }>('/auth/login', { email, password }),
@@ -38,11 +40,12 @@ export const uploadApi = {
 export const childrenApi = {
   getAll: () => api.get<Child[]>('/children'),
   getOne: (id: string) => api.get<Child>(`/children/${id}`),
-  create: (data: Partial<Child>) => api.post<Child>('/children', data),
+  create: (data: Partial<Child> & { consent: boolean }) => api.post<Child>('/children', data),
   update: (id: string, data: Partial<Child>) => api.put<Child>(`/children/${id}`, data),
   delete: (id: string) => api.delete(`/children/${id}`),
   removeTrainer: (childId: string, trainerId: string) =>
     api.delete(`/children/${childId}/trainers/${trainerId}`),
+  getAccessLog: (childId: string) => api.get<AccessLogEntry[]>(`/children/${childId}/access-log`),
 };
 
 export const invitesApi = {
@@ -103,6 +106,7 @@ export const articlesApi = {
 export const adminApi = {
   getUsers: () => api.get<User[]>('/admin/users'),
   getUserDetail: (id: string) => api.get<{ user: User; children: Child[] }>(`/admin/users/${id}`),
+  setAdmin: (id: string, isAdmin: boolean) => api.put<User>(`/admin/users/${id}/admin`, { isAdmin }),
   getChildDetail: (childId: string) => api.get<{
     child: Child & { parentId: Pick<User,'_id'|'name'|'email'>; trainers: Pick<User,'_id'|'name'|'email'>[] };
     emotions: Emotion[];
@@ -110,17 +114,25 @@ export const adminApi = {
     diary: DiaryEntry[];
     stats: { totalEmotions: number; totalActivities: number; totalDiary: number };
   }>(`/admin/children/${childId}`),
+  getChildAudit: (childId: string) =>
+    api.get<(AccessLogEntry & { ip?: string; userId?: { _id: string; name: string; email?: string; role: string } | null })[]>(
+      `/admin/children/${childId}/audit`
+    ),
 };
 
 export const documentsApi = {
   getAll: (childId: string) => api.get<DocumentItem[]>(`/documents/${childId}`),
-  upload: (childId: string, file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post<DocumentItem>(`/documents/${childId}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
+  // Шаг 1: сервер проверяет тип/размер и выдаёт одноразовую ссылку на загрузку в хранилище
+  requestUpload: (childId: string, file: { fileName: string; mimeType: string; size: number }) =>
+    api.post<{ documentId: string } & UploadTarget>(`/documents/${childId}/upload-url`, file),
+  // Шаг 3: сервер проверяет загруженный файл и сохраняет документ
+  completeUpload: (childId: string, documentId: string) =>
+    api.post<DocumentItem>(`/documents/${childId}/${documentId}/complete`),
+  // Одноразовая ссылка на 5 минут
+  getDownloadUrl: (childId: string, documentId: string, inline = true) =>
+    api.get<{ url: string; expiresIn: number }>(`/documents/${childId}/${documentId}/download`, {
+      params: inline ? { inline: 1 } : {},
+    }),
   delete: (childId: string, documentId: string) =>
     api.delete(`/documents/${childId}/${documentId}`),
 };
@@ -145,4 +157,40 @@ export const tasksApi = {
   },
   getAllSubmissions: (taskId: string) =>
     api.get<TaskSubmissionAdmin[]>(`/tasks/${taskId}/submissions`),
+};
+
+export const enrollmentApi = {
+  // Родитель
+  createRequest: (data: {
+    childId: string; preferredDays: Weekday[]; preferredTimeFrom?: string; preferredTimeTo?: string;
+    contactPhone: string; comment?: string;
+  }) => api.post<EnrollmentRequest>('/enrollment/requests', data),
+  getMyRequests: () => api.get<EnrollmentRequest[]>('/enrollment/requests/my'),
+  withdrawRequest: (id: string) => api.put<EnrollmentRequest>(`/enrollment/requests/${id}/withdraw`),
+
+  // Администратор
+  adminGetRequests: (status?: RequestStatus) =>
+    api.get<{ counts: Record<RequestStatus, number>; requests: EnrollmentRequest[] }>(
+      '/enrollment/admin/requests', { params: status ? { status } : {} }
+    ),
+  adminGetTrainers: () => api.get<User[]>('/enrollment/admin/trainers'),
+  adminAssign: (requestId: string, data: {
+    trainerId: string; slots: ScheduleSlot[]; durationMin: number; startDate: string; endDate: string;
+  }) => api.post<{ assignment: Assignment; sessionsCreated: number; conflicts: number }>(
+    `/enrollment/admin/requests/${requestId}/assign`, data
+  ),
+  adminCancelRequest: (id: string, reason?: string) =>
+    api.put<EnrollmentRequest>(`/enrollment/admin/requests/${id}/cancel`, { reason }),
+  adminCancelAssignment: (id: string, reason?: string) =>
+    api.put<Assignment>(`/enrollment/admin/assignments/${id}/cancel`, { reason }),
+  adminCancelSession: (id: string, reason?: string) =>
+    api.put<Session>(`/enrollment/admin/sessions/${id}/cancel`, { reason }),
+
+  // Тренер
+  activate: (code: string) => api.post<Assignment>('/enrollment/trainer/activate', { code }),
+  trainerAssignments: () => api.get<Assignment[]>('/enrollment/trainer/assignments'),
+
+  // Календарь
+  getSessions: (from: string, to: string, filters?: { trainerId?: string; childId?: string }) =>
+    api.get<Session[]>('/enrollment/sessions', { params: { from, to, ...filters } }),
 };

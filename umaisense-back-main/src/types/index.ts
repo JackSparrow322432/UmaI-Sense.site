@@ -7,6 +7,7 @@ export interface IUser extends Document {
   name: string;
   photo?: string;
   role: 'parent' | 'trainer' | 'admin';
+  formerRole?: 'parent' | 'trainer';
   password?: string;
   isVerified: boolean;
   createdAt: Date;
@@ -17,6 +18,8 @@ export interface IChild extends Document {
   _id: Types.ObjectId;
   parentId: Types.ObjectId;
   name: string;
+  lastName?: string;
+  iin?: string;
   dateOfBirth: Date;
   photo?: string;
   diagnosis?: string;
@@ -34,6 +37,11 @@ export interface IChild extends Document {
   };
   behavioralNotes?: string;
   goals?: Array<{ title: string; description?: string }>;
+  adaptiveSkating?: {
+    hasExperience: boolean;
+    when?: string;
+    details?: string;
+  };
   trainers: Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
@@ -104,9 +112,14 @@ export interface IRecommendation extends Document {
   generatedAt: Date;
 }
 
+export type NotificationType =
+  | 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder'
+  | 'new_article' | 'new_task'
+  | 'enrollment_update' | 'trainer_assigned' | 'session_cancelled';
+
 export interface INotification extends Document {
   userId: Types.ObjectId;
-  type: 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task';
+  type: NotificationType;
   message: string;
   read: boolean;
   relatedId?: Types.ObjectId;
@@ -124,11 +137,74 @@ export interface IDocument extends Document {
   _id: Types.ObjectId;
   childId: Types.ObjectId;
   uploadedBy: Types.ObjectId;
-  fileUrl: string;
+  storageKey?: string;
+  storageProvider?: 's3' | 'cloudinary';
+  fileUrl?: string;
   fileName: string;
   mimeType: string;
-  aiStatus: 'pending' | 'done' | 'failed';
+  size?: number;
+  status: 'uploading' | 'ready';
+  uploadExpiresAt?: Date;
+  aiStatus: 'pending' | 'done' | 'failed' | 'disabled';
   aiExplanation?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─── Запись на занятия ───────────────────────────────────────────────────────
+
+/** День недели: 1 = понедельник … 7 = воскресенье */
+export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export interface IEnrollmentRequest extends Document {
+  _id: Types.ObjectId;
+  parentId: Types.ObjectId;
+  childId: Types.ObjectId;
+  preferredDays: Weekday[];
+  preferredTimeFrom?: string; // 'HH:mm'
+  preferredTimeTo?: string;   // 'HH:mm'
+  contactPhone: string;
+  comment?: string;
+  status: 'pending' | 'approved' | 'cancelled';
+  cancelledBy?: 'parent' | 'admin';
+  adminComment?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IAssignment extends Document {
+  _id: Types.ObjectId;
+  requestId: Types.ObjectId;
+  childId: Types.ObjectId;
+  parentId: Types.ObjectId;
+  trainerId: Types.ObjectId;
+  slots: Array<{ weekday: Weekday; startTime: string }>;
+  durationMin: number;
+  startDate: string; // 'YYYY-MM-DD'
+  endDate: string;   // 'YYYY-MM-DD'
+  accessCode: string;
+  codeUsed: boolean;
+  activatedAt?: Date;
+  hadAccessBefore?: boolean;
+  status: 'active' | 'cancelled';
+  cancelReason?: string;
+  cancelledAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ISession extends Document {
+  _id: Types.ObjectId;
+  assignmentId: Types.ObjectId;
+  requestId: Types.ObjectId;
+  childId: Types.ObjectId;
+  parentId: Types.ObjectId;
+  trainerId: Types.ObjectId;
+  date: string;      // 'YYYY-MM-DD'
+  startTime: string; // 'HH:mm'
+  endTime: string;   // 'HH:mm'
+  status: 'scheduled' | 'cancelled';
+  cancelReason?: string;
   createdAt: Date;
   updatedAt: Date;
 }

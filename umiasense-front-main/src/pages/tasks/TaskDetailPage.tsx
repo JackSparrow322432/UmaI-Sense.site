@@ -134,7 +134,7 @@ function ChildRatingRow({
             {isParent && (
               <label className="text-[11px] font-semibold text-[#E07628] hover:underline cursor-pointer flex-shrink-0">
                 {uploading ? '...' : 'Заменить'}
-                <input type="file" accept="image/*" className="hidden" onChange={handleUpload} disabled={uploading} />
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleUpload} disabled={uploading} />
               </label>
             )}
           </div>
@@ -150,7 +150,7 @@ function ChildRatingRow({
                 <span className="text-xs text-gray-400">Загрузить выполненное задание</span>
               </>
             )}
-            <input type="file" accept="image/*" className="hidden" onChange={handleUpload} disabled={uploading} />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleUpload} disabled={uploading} />
           </label>
         ) : (
           <p className="text-xs text-gray-300">Домашнее задание ещё не загружено</p>

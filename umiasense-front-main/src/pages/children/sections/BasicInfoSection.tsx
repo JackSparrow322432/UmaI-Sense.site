@@ -2,6 +2,10 @@ import { useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { childrenApi, uploadApi } from '../../../api';
 import type { Child } from '../../../types';
+import AdaptiveSkatingFields, {
+  emptySkating, validateSkating, skatingPayload, type SkatingForm,
+} from '../../../components/enrollment/AdaptiveSkatingFields';
+import { isValidIin, iinMatchesBirthDate } from '../../../utils/enrollment';
 
 const COMMUNICATION_OPTIONS = [
   'Вербальная речь', 'ААС-устройство', 'PECS карточки', 'Жестовый язык', 'Другое',
@@ -35,12 +39,15 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     name: child.name,
+    lastName: child.lastName || '',
+    iin: child.iin || '',
     dateOfBirth: child.dateOfBirth.split('T')[0],
     diagnosis: child.diagnosis || '',
     communicationMethod: child.communicationMethod || '',
     photo: child.photo || '',
   });
 
+  const [skating, setSkating] = useState<SkatingForm>(emptySkating(child.adaptiveSkating));
   const set = (key: keyof typeof form, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -60,20 +67,30 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
   const startEdit = () => {
     setForm({
       name: child.name,
+      lastName: child.lastName || '',
+      iin: child.iin || '',
       dateOfBirth: child.dateOfBirth.split('T')[0],
       diagnosis: child.diagnosis || '',
       communicationMethod: child.communicationMethod || '',
       photo: child.photo || '',
     });
+    setSkating(emptySkating(child.adaptiveSkating));
     setEditing(true);
   };
 
   const save = async () => {
     if (!form.name.trim()) { toast.error('Имя обязательно'); return; }
+    if (!form.lastName.trim()) { toast.error('Фамилия обязательна'); return; }
+    if (!isValidIin(form.iin)) { toast.error('Проверьте ИИН — 12 цифр'); return; }
+    const skatingError = validateSkating(skating);
+    if (skatingError) { toast.error(skatingError); return; }
     setSaving(true);
     try {
       await childrenApi.update(child._id, {
         name: form.name.trim(),
+        lastName: form.lastName.trim(),
+        iin: form.iin,
+        adaptiveSkating: skatingPayload(skating),
         dateOfBirth: form.dateOfBirth,
         diagnosis: form.diagnosis.trim() || undefined,
         communicationMethod: form.communicationMethod || undefined,
@@ -82,8 +99,8 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
       toast.success('Сохранено');
       onRefresh();
       setEditing(false);
-    } catch {
-      toast.error('Ошибка сохранения');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Ошибка сохранения');
     } finally {
       setSaving(false);
     }
@@ -108,13 +125,27 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
             {uploading && (
               <div className="absolute inset-0 rounded-full bg-white/70 flex items-center justify-center text-xs text-[#E07628]">...</div>
             )}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhoto} />
           </div>
         </div>
 
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Имя</label>
           <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#E07628]/30 focus:border-[#E07628] transition" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Фамилия <span className="text-[#E07628]">*</span></label>
+          <input type="text" value={form.lastName} onChange={(e) => set('lastName', e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#E07628]/30 focus:border-[#E07628] transition" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">ИИН <span className="text-[#E07628]">*</span></label>
+          <input type="text" inputMode="numeric" value={form.iin} onChange={(e) => set('iin', e.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="12 цифр" className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#E07628]/30 focus:border-[#E07628] transition tracking-wider" />
+          {form.iin.length === 12 && !isValidIin(form.iin) && (
+            <p className="text-xs text-red-500 mt-1">ИИН не прошёл проверку — проверьте цифры</p>
+          )}
+          {form.iin.length >= 6 && form.dateOfBirth && !iinMatchesBirthDate(form.iin, form.dateOfBirth) && (
+            <p className="text-xs text-amber-600 mt-1">Первые 6 цифр ИИН не совпадают с датой рождения — проверьте</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Дата рождения</label>
@@ -132,6 +163,8 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
           </select>
         </div>
 
+        <AdaptiveSkatingFields value={skating} onChange={setSkating} />
+
         <div className="flex gap-3">
           <button onClick={() => setEditing(false)} className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-50 transition">Отмена</button>
           <button onClick={save} disabled={saving || uploading} className="flex-1 bg-[#E07628] text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-[#C4641A] transition disabled:opacity-50">{saving ? 'Сохранение...' : 'Сохранить'}</button>
@@ -147,7 +180,7 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
           {child.photo ? <img src={child.photo} className="w-full h-full object-cover" alt="" /> : child.name[0]}
         </div>
         <div>
-          <p className="text-xl font-bold text-gray-900">{child.name}</p>
+          <p className="text-xl font-bold text-gray-900">{[child.name, child.lastName].filter(Boolean).join(' ')}</p>
           <p className="text-sm text-gray-500">{getAge(child.dateOfBirth)} · {new Date(child.dateOfBirth).toLocaleDateString('ru-RU')}</p>
         </div>
         {canEdit && (
@@ -155,7 +188,33 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
         )}
       </div>
 
+      {canEdit && (!child.lastName || !child.iin || typeof child.adaptiveSkating?.hasExperience !== 'boolean') && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
+          Заполните фамилию, ИИН и информацию об адаптивном катании — без них нельзя подать заявку на занятия.
+          <button onClick={startEdit} className="ml-1 font-semibold underline">Заполнить</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
+        <div className="bg-gray-50 rounded-xl p-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">ИИН</p>
+          <p className="text-sm text-gray-700 tracking-wider">{child.iin || <span className="text-gray-400 tracking-normal">Не указан</span>}</p>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Адаптивное катание</p>
+          <p className="text-sm text-gray-700">
+            {child.adaptiveSkating?.hasExperience === true && 'Занимался ранее'}
+            {child.adaptiveSkating?.hasExperience === false && 'Ранее не занимался'}
+            {typeof child.adaptiveSkating?.hasExperience !== 'boolean' && <span className="text-gray-400">Не указано</span>}
+          </p>
+        </div>
+        {child.adaptiveSkating?.hasExperience && (
+          <div className="bg-gray-50 rounded-xl p-3 col-span-2">
+            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Когда и подробности</p>
+            <p className="text-sm text-gray-700 font-medium">{child.adaptiveSkating.when}</p>
+            <p className="text-sm text-gray-600 whitespace-pre-line mt-1">{child.adaptiveSkating.details}</p>
+          </div>
+        )}
         <div className="bg-gray-50 rounded-xl p-3">
           <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Диагноз</p>
           <p className="text-sm text-gray-700">{child.diagnosis || <span className="text-gray-400">Не указан</span>}</p>

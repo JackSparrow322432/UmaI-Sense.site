@@ -42,6 +42,12 @@ import TaskDetailPage from './pages/tasks/TaskDetailPage';
 import AdminTasksPage from './pages/admin/AdminTasksPage';
 import AdminTaskFormPage from './pages/admin/AdminTaskFormPage';
 import AdminTaskSubmissionsPage from './pages/admin/AdminTaskSubmissionsPage';
+import AdminRequestsPage from './pages/admin/AdminRequestsPage';
+import AdminSchedulePage from './pages/admin/AdminSchedulePage';
+import SchedulePage from './pages/schedule/SchedulePage';
+import RequestsPage from './pages/requests/RequestsPage';
+import RequestFormPage from './pages/requests/RequestFormPage';
+import PrivacyPage from './pages/legal/PrivacyPage';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const token = useAuthStore((s) => s.token);
@@ -57,6 +63,7 @@ const HomeRedirect = ({ user }: { user: User | null }) => {
 export default function App() {
   const { token, user, setUser, clearAuth } = useAuthStore();
   const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState(false);
 
   // On mount: verify token with server and load user
   useEffect(() => {
@@ -66,9 +73,22 @@ export default function App() {
     }
     authApi.getMe()
       .then(({ data }) => setUser(data))
-      .catch(() => clearAuth())
+      // Выходим только если токен действительно недействителен (401). При сетевой ошибке,
+      // лимите запросов (429) или обновлении сервера (503) пользователя не разлогиниваем.
+      .catch((err) => { const st = err?.response?.status; if (st === 401 || st === 404) clearAuth(); else setBootError(true); })
       .finally(() => setBooting(false));
   }, []);
+
+  if (bootError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-gray-50 px-4 text-center">
+        <p className="text-sm text-gray-600">Не удалось связаться с сервером. Проверьте интернет и попробуйте ещё раз.</p>
+        <button onClick={() => window.location.reload()} className="bg-[#E07628] text-white rounded-xl px-5 py-2.5 text-sm font-semibold">
+          Повторить
+        </button>
+      </div>
+    );
+  }
 
   if (booting) {
     return (
@@ -89,6 +109,7 @@ export default function App() {
         <Route path="/setup" element={<ProfileSetupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
 
         {/* Protected */}
         <Route
@@ -117,6 +138,9 @@ export default function App() {
           <Route path="articles/:id" element={<ArticleDetailPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="tasks/:id" element={<TaskDetailPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
+          <Route path="requests" element={<RequestsPage />} />
+          <Route path="requests/new" element={<RequestFormPage />} />
         </Route>
 
         {/* Admin */}
@@ -139,6 +163,8 @@ export default function App() {
           <Route path="tasks/new" element={<AdminTaskFormPage />} />
           <Route path="tasks/:id/edit" element={<AdminTaskFormPage />} />
           <Route path="tasks/:id/submissions" element={<AdminTaskSubmissionsPage />} />
+          <Route path="requests" element={<AdminRequestsPage />} />
+          <Route path="schedule" element={<AdminSchedulePage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

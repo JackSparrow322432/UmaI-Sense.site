@@ -1,0 +1,18 @@
+# Запускается на КАЖДОМ сервере приложения (app1, app2).
+#   cd /opt/umaisense && git pull && docker compose -f deploy/app/docker-compose.yml up -d --build
+services:
+  api:
+    build:
+      context: ../../umaisense-back-main
+    image: umaisense-api:latest
+    env_file: /opt/umaisense/.env      # секреты лежат вне репозитория, права 600
+    ports:
+      # Только на частный адрес сервера (PRIVATE_IP в /opt/umaisense/deploy/app/.env):
+      # Docker обходит ufw, поэтому публикация на 0.0.0.0 открыла бы API в обход балансировщика
+      - "${PRIVATE_IP}:5000:5000"
+      - "127.0.0.1:5000:5000"          # для проверок здоровья с самого сервера (deploy-app.sh)
+    restart: always
+    stop_grace_period: 20s             # время на корректную остановку (graceful shutdown)
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }

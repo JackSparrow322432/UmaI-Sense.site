@@ -1,7 +1,10 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { v2 as cloudinary } from 'cloudinary';
+import { isPublicS3Enabled, putPublicObject } from './storage';
+import { IMAGE_TYPES, MAX_IMAGE_SIZE, matchesSignature, extFor } from './fileTypes';
 
 // ─── Cloudinary config ────────────────────────────────────────────────────────
 
@@ -10,7 +13,10 @@ const cloudinaryEnabled =
   !!process.env.CLOUDINARY_API_KEY &&
   !!process.env.CLOUDINARY_API_SECRET;
 
-if (cloudinaryEnabled) {
+// Приоритет: S3 в Казахстане → Cloudinary (только до переезда, хранит за рубежом) → локальный диск (разработка)
+if (isPublicS3Enabled()) {
+  console.log('[Storage] Images → S3 public bucket');
+} else if (cloudinaryEnabled) {
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key:    process.env.CLOUDINARY_API_KEY,
@@ -28,32 +34,42 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) => {
-  if (file.mimetype.startsWith('image/')) {
+  if (IMAGE_TYPES[file.mimetype]) {
     cb(null, true);
   } else {
-    cb(new Error('Разрешены только изображения'));
+    cb(new Error('Разрешены только изображения JPG, PNG, WebP или GIF'));
   }
 };
 
 export const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: MAX_IMAGE_SIZE },
 });
 
 // ─── Upload helper ────────────────────────────────────────────────────────────
 
 const uploadDir = path.join(__dirname, '../../uploads');
-if (!cloudinaryEnabled) {
+if (!cloudinaryEnabled && !isPublicS3Enabled()) {
   try {
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
   } catch (err) {
     console.warn('[Upload] Не удалось создать локальную папку uploads (read-only filesystem):', err);
   }
 }
-export const uploadImage = (file: Express.Multer.File): Promise<string> => {
+export const uploadImage = async (file: Express.Multer.File): Promise<string> => {
+  // Проверяем реальный формат по первым байтам: MIME из браузера можно подделать
+  if (!matchesSignature(IMAGE_TYPES, file.mimetype, file.buffer.subarray(0, 16))) {
+    throw new InvalidFileError('Файл не является изображением');
+  }
+  if (isPublicS3Enabled()) {
+    const key = `images/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${extFor(IMAGE_TYPES, file.mimetype)}`;
+    return putPublicObject(key, file.buffer, file.mimetype);
+  }
   return cloudinaryEnabled ? uploadToCloudinary(file) : saveLocally(file);
 };
+
+export class InvalidFileError extends Error {}
 
 const uploadToCloudinary = (file: Express.Multer.File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -73,7 +89,7 @@ const uploadToCloudinary = (file: Express.Multer.File): Promise<string> =>
 
 const saveLocally = (file: Express.Multer.File): Promise<string> =>
   new Promise((resolve, reject) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const ext = `.${extFor(IMAGE_TYPES, file.mimetype)}`;
     const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     fs.writeFile(path.join(uploadDir, filename), file.buffer, (err) => {
       if (err) return reject(err);

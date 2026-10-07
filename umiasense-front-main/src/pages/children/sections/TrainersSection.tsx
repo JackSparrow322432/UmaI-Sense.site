@@ -1,84 +1,22 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { childrenApi, invitesApi } from '../../../api';
-import type { Child, User, InviteCode } from '../../../types';
-import { useCountdown } from '../../../hooks/useCountdown';
+import { childrenApi } from '../../../api';
+import type { Child, User } from '../../../types';
 
 interface Props { child: Child; canEdit: boolean; onRefresh: () => void; }
 
-function InviteCodeBox({ code, onNew }: { code: InviteCode; onNew: () => void }) {
-  const remaining = useCountdown(code.expiresAt);
-  const expired = remaining === 'Истёк';
-
-  const copy = () => {
-    navigator.clipboard.writeText(code.code);
-    toast.success('Код скопирован');
-  };
-
-  return (
-    <div className={`rounded-2xl p-4 border ${expired ? 'bg-gray-50 border-gray-200' : 'bg-[#FFF3EA] border-[#E07628]/20'}`}>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Код-приглашение</p>
-        {!expired && (
-          <span className="text-xs text-[#E07628] font-medium bg-white rounded-full px-2.5 py-0.5 border border-[#E07628]/20">
-            ⏱ {remaining}
-          </span>
-        )}
-        {expired && (
-          <span className="text-xs text-gray-400 font-medium">Истёк</span>
-        )}
-      </div>
-
-      {expired ? (
-        <p className="text-sm text-gray-400 mb-3">Срок действия кода истёк. Создайте новый.</p>
-      ) : (
-        <div className="flex items-center gap-3 mb-3">
-          <p className="text-3xl font-bold tracking-widest text-[#E07628] font-mono">{code.code}</p>
-          <button
-            onClick={copy}
-            className="text-xs bg-white border border-[#E07628]/30 text-[#E07628] rounded-lg px-3 py-1.5 font-semibold hover:bg-[#E07628] hover:text-white transition"
-          >
-            Копировать
-          </button>
-        </div>
-      )}
-
-      <p className="text-xs text-gray-400 mb-3">
-        {expired
-          ? ''
-          : 'Отправьте этот код тренеру. Он действителен 48 часов.'}
-      </p>
-
-      <button
-        onClick={onNew}
-        className="text-xs text-[#E07628] font-semibold hover:underline"
-      >
-        {expired ? 'Создать новый код' : '↺ Создать новый код'}
-      </button>
-    </div>
-  );
-}
-
+/**
+ * Тренеров к ребёнку записывает администратор по заявке родителя.
+ * Тренер получает код доступа и после его ввода появляется в этом списке.
+ */
 export default function TrainersSection({ child, canEdit, onRefresh }: Props) {
-  const [revoking, setRevoking] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [activeCode, setActiveCode] = useState<InviteCode | null>(null);
-
   const trainers = child.trainers as User[];
+  const managed = new Set(child.managedTrainerIds ?? []);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
-  const handleCreateCode = async () => {
-    setCreating(true);
-    try {
-      const { data } = await invitesApi.create(child._id);
-      setActiveCode(data);
-      toast.success('Код создан');
-    } catch {
-      toast.error('Ошибка создания кода');
-    } finally {
-      setCreating(false);
-    }
-  };
-
+  // Открепить можно только тренера, подключённого по старому коду от родителя.
+  // Записанных администратором открепляет администратор (кнопка «Отменить» в заявке).
   const handleRevoke = async (trainerId: string) => {
     if (!confirm('Отозвать доступ тренера?')) return;
     setRevoking(trainerId);
@@ -86,8 +24,8 @@ export default function TrainersSection({ child, canEdit, onRefresh }: Props) {
       await childrenApi.removeTrainer(child._id, trainerId);
       toast.success('Доступ отозван');
       onRefresh();
-    } catch {
-      toast.error('Ошибка');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Ошибка');
     } finally {
       setRevoking(null);
     }
@@ -95,35 +33,24 @@ export default function TrainersSection({ child, canEdit, onRefresh }: Props) {
 
   return (
     <div className="space-y-5">
-
-      {/* Invite code block — parent only */}
       {canEdit && (
-        <div>
-          {activeCode ? (
-            <InviteCodeBox code={activeCode} onNew={handleCreateCode} />
-          ) : (
-            <button
-              onClick={handleCreateCode}
-              disabled={creating}
-              className="w-full border-2 border-dashed border-[#E07628]/30 rounded-2xl py-4 text-sm font-semibold text-[#E07628] hover:bg-[#FFF3EA] transition disabled:opacity-50"
-            >
-              {creating ? 'Создание...' : '🔗 Создать код-приглашение для тренера'}
-            </button>
-          )}
+        <div className="rounded-2xl p-4 border bg-[#FFF3EA] border-[#E07628]/20 text-sm text-gray-700">
+          <p>Тренера назначает администратор. Отправьте заявку с удобными днями — после записи тренер получит код доступа к профилю.</p>
+          <div className="flex gap-4 mt-3">
+            <Link to={`/requests/new?childId=${child._id}`} className="text-[#E07628] font-semibold hover:underline">Подать заявку</Link>
+            <Link to="/requests" className="text-gray-500 font-medium hover:underline">Мои заявки</Link>
+            <Link to="/schedule" className="text-gray-500 font-medium hover:underline">Расписание</Link>
+          </div>
         </div>
       )}
 
-      {/* Trainers list */}
       <div>
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-          Прикреплённые специалисты
-        </p>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Прикреплённые специалисты</p>
 
         {trainers.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
             <p className="text-3xl mb-2">👥</p>
             <p className="text-sm">Нет прикреплённых специалистов</p>
-            {canEdit && <p className="text-xs mt-1">Создайте код выше и отправьте тренеру</p>}
           </div>
         ) : (
           <div className="space-y-3">
@@ -136,9 +63,10 @@ export default function TrainersSection({ child, canEdit, onRefresh }: Props) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900 text-sm">{trainer.name || 'Без имени'}</p>
-                  <p className="text-xs text-gray-400">{trainer.email}</p>
+                  {trainer.email && <p className="text-xs text-gray-400">{trainer.email}</p>}
+                  {managed.has(trainer._id) && <p className="text-xs text-gray-400">Записан администратором</p>}
                 </div>
-                {canEdit && (
+                {canEdit && !managed.has(trainer._id) && (
                   <button
                     onClick={() => handleRevoke(trainer._id)}
                     disabled={revoking === trainer._id}

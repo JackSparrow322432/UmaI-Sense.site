@@ -12,6 +12,7 @@ import SensorySection from './sections/SensorySection';
 import BehavioralSection from './sections/BehavioralSection';
 import GoalsSection from './sections/GoalsSection';
 import TrainersSection from './sections/TrainersSection';
+import AccessLogSection from './sections/AccessLogSection';
 
 const TABS = [
   { id: 'basic',      label: '📋 Основное' },
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'behavioral', label: '🧠 Поведение' },
   { id: 'goals',      label: '🎯 Цели' },
   { id: 'trainers',   label: '👥 Специалисты' },
+  { id: 'access',     label: '🔒 Журнал доступа', parentOnly: true },
 ];
 
 const MODULES = [
@@ -109,7 +111,7 @@ export default function ChildProfilePage() {
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="flex overflow-x-auto border-b border-gray-100">
-          {TABS.map((tab) => (
+          {TABS.filter((t) => !('parentOnly' in t) || isParent).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -132,6 +134,7 @@ export default function ChildProfilePage() {
           {activeTab === 'behavioral' && <BehavioralSection child={child} canEdit={isParent} onRefresh={fetchChild} />}
           {activeTab === 'goals'      && <GoalsSection      child={child} canEdit={isParent} onRefresh={fetchChild} />}
           {activeTab === 'trainers'   && <TrainersSection   child={child} canEdit={isParent} onRefresh={fetchChild} />}
+          {activeTab === 'access' && isParent && <AccessLogSection child={child} />}
         </div>
       </div>
     </div>

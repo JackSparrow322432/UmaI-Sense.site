@@ -3,40 +3,73 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { documentsApi } from '../../api';
 import type { DocumentItem } from '../../types';
+import { uploadDirect } from '../../utils/directUpload';
 
-const STATUS_LABEL: Record<DocumentItem['aiStatus'], { label: string; color: string; bg: string }> = {
-  pending: { label: 'Распознаётся...', color: '#E07628', bg: '#FFF3EA' },
-  done:    { label: 'Разобрано ИИ',    color: '#2DD4A1', bg: '#EDFAF5' },
-  failed:  { label: 'Не удалось разобрать', color: '#EF4444', bg: '#FEF2F2' },
+const MAX_SIZE = 20 * 1024 * 1024;
+
+// Браузер не всегда знает MIME-тип (например, .docx на компьютере без Office или .heic) — подставляем по расширению
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  heic: 'image/heic',
+  heif: 'image/heif',
+};
+const ALLOWED = new Set(Object.values(MIME_BY_EXT));
+const ACCEPT = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.heif';
+
+const guessMime = (file: File): string => {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (file.type && ALLOWED.has(file.type)) return file.type;
+  return MIME_BY_EXT[ext] ?? file.type;
 };
 
-function DocumentCard({ doc, onDelete }: { doc: DocumentItem; onDelete: (id: string) => void }) {
+const formatSize = (bytes?: number) => {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+};
+
+const kindOf = (mime: string) => {
+  if (mime === 'application/pdf') return { label: 'PDF', color: '#EF4444', bg: '#FEF2F2' };
+  if (mime.includes('word') || mime === 'application/msword') return { label: 'DOC', color: '#2563EB', bg: '#EFF6FF' };
+  return { label: 'ФОТО', color: '#059669', bg: '#ECFDF5' };
+};
+
+function DocumentCard({
+  doc, onOpen, onDelete,
+}: { doc: DocumentItem; onOpen: (doc: DocumentItem, inline: boolean) => void; onDelete: (id: string) => void }) {
   const [open, setOpen] = useState(false);
-  const status = STATUS_LABEL[doc.aiStatus];
-  const uploaderName = typeof doc.uploadedBy === 'string' ? '' : doc.uploadedBy.name;
+  const uploaderName = typeof doc.uploadedBy === 'string' ? '' : doc.uploadedBy?.name;
+  const kind = kindOf(doc.mimeType);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex gap-3 p-4">
-        <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="flex-shrink-0">
-          <img
-            src={doc.fileUrl}
-            alt={doc.fileName}
-            className="w-16 h-16 rounded-xl object-cover border border-gray-100"
-          />
-        </a>
+        <button
+          onClick={() => onOpen(doc, true)}
+          className="w-14 h-14 rounded-xl flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+          style={{ background: kind.bg, color: kind.color }}
+          title="Открыть"
+        >
+          {kind.label}
+        </button>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900 truncate">{doc.fileName}</p>
+          <button onClick={() => onOpen(doc, true)} className="block text-left text-sm font-semibold text-gray-900 truncate max-w-full hover:text-[#E07628]">
+            {doc.fileName}
+          </button>
           <p className="text-xs text-gray-400 mt-0.5">
             {new Date(doc.createdAt).toLocaleDateString('ru-RU')}
             {uploaderName && ` · ${uploaderName}`}
+            {doc.size ? ` · ${formatSize(doc.size)}` : ''}
           </p>
-          <span
-            className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: status.bg, color: status.color }}
-          >
-            {status.label}
-          </span>
+          <div className="flex gap-3 mt-1.5">
+            <button onClick={() => onOpen(doc, true)} className="text-xs text-[#E07628] font-semibold">Открыть</button>
+            <button onClick={() => onOpen(doc, false)} className="text-xs text-gray-500 font-medium">Скачать</button>
+          </div>
         </div>
         <button
           onClick={() => onDelete(doc._id)}
@@ -46,18 +79,17 @@ function DocumentCard({ doc, onDelete }: { doc: DocumentItem; onDelete: (id: str
         </button>
       </div>
 
+      {/* Разъяснения ИИ остались только у старых документов; новые документы в ИИ не отправляются */}
       {doc.aiExplanation && (
         <div className="border-t border-gray-100">
           <button
             onClick={() => setOpen((v) => !v)}
             className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[#E07628] hover:bg-[#FFF3EA] transition"
           >
-            {open ? '▲ Скрыть разъяснение ИИ' : '▼ Показать разъяснение ИИ'}
+            {open ? '▲ Скрыть прежнее разъяснение ИИ' : '▼ Показать прежнее разъяснение ИИ'}
           </button>
           {open && (
-            <p className="px-4 pb-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-              {doc.aiExplanation}
-            </p>
+            <p className="px-4 pb-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{doc.aiExplanation}</p>
           )}
         </div>
       )}
@@ -72,7 +104,7 @@ export default function DocumentsPage() {
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
 
   const fetchDocuments = async () => {
     if (!id) return;
@@ -90,29 +122,54 @@ export default function DocumentsPage() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
     if (!file || !id) return;
 
-    if (!file.type.startsWith('image/')) {
-      toast.error('Можно загружать только изображения (фото документа)');
+    const mimeType = guessMime(file);
+    if (!ALLOWED.has(mimeType)) {
+      toast.error('Можно загружать PDF, Word (DOC, DOCX) или фото (JPG, PNG, HEIC)');
+      return;
+    }
+    if (file.size > MAX_SIZE) {
+      toast.error('Файл больше 20 МБ');
       return;
     }
 
-    setUploading(true);
+    setProgress(0);
     try {
-      const { data } = await documentsApi.upload(id, file);
+      // 1. Разрешение и одноразовая ссылка от сервера
+      const { data: slot } = await documentsApi.requestUpload(id, { fileName: file.name, mimeType, size: file.size });
+      // 2. Файл идёт напрямую в закрытое хранилище, минуя сервер
+      const { documentId, ...target } = slot;
+      await uploadDirect(target, file, setProgress);
+      // 3. Сервер проверяет файл и сохраняет документ
+      const { data } = await documentsApi.completeUpload(id, documentId);
       setDocuments((prev) => [data, ...prev]);
-      toast.success('Документ загружен и разобран ИИ');
-    } catch {
-      toast.error('Ошибка загрузки документа');
+      toast.success('Документ загружен');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Ошибка загрузки документа');
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setProgress(null);
+    }
+  };
+
+  const handleOpen = async (doc: DocumentItem, inline: boolean) => {
+    if (!id) return;
+    // Окно открываем сразу (иначе браузер заблокирует всплывающее окно после await)
+    const win = window.open('', '_blank');
+    try {
+      const { data } = await documentsApi.getDownloadUrl(id, doc._id, inline);
+      if (win) win.location.href = data.url;
+      else window.location.href = data.url;
+    } catch (err: any) {
+      win?.close();
+      toast.error(err?.response?.data?.message || 'Не удалось открыть документ');
     }
   };
 
   const handleDelete = async (documentId: string) => {
     if (!id) return;
-    if (!confirm('Удалить документ?')) return;
+    if (!confirm('Удалить документ? Его нельзя будет восстановить.')) return;
     try {
       await documentsApi.delete(id, documentId);
       setDocuments((prev) => prev.filter((d) => d._id !== documentId));
@@ -121,6 +178,8 @@ export default function DocumentsPage() {
       toast.error('Ошибка удаления');
     }
   };
+
+  const uploading = progress !== null;
 
   return (
     <div className="space-y-5">
@@ -131,23 +190,26 @@ export default function DocumentsPage() {
         ← Назад к профилю
       </button>
 
-      <div className="flex items-center justify-between">
+      <div>
         <h1 className="text-xl font-bold text-gray-900">📄 Документы</h1>
+        <p className="text-xs text-gray-400 mt-1">
+          Медицинские заключения, справки, выписки. Файлы хранятся в закрытом хранилище и открываются
+          только по ссылке, которая действует 5 минут. Каждый просмотр записывается в журнал доступа.
+        </p>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        className="hidden"
-      />
+      <input ref={fileInputRef} type="file" accept={ACCEPT} onChange={handleFileChange} className="hidden" />
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading}
-        className="w-full border-2 border-dashed border-[#E07628]/30 rounded-2xl py-4 text-sm font-semibold text-[#E07628] hover:bg-[#FFF3EA] transition disabled:opacity-50"
+        className="relative w-full overflow-hidden border-2 border-dashed border-[#E07628]/30 rounded-2xl py-4 text-sm font-semibold text-[#E07628] hover:bg-[#FFF3EA] transition disabled:opacity-80"
       >
-        {uploading ? 'Загрузка и распознавание...' : '📎 Загрузить фото документа'}
+        {uploading && (
+          <span className="absolute inset-y-0 left-0 bg-[#FFF3EA] transition-all" style={{ width: `${progress}%` }} />
+        )}
+        <span className="relative">
+          {uploading ? `Загрузка… ${progress}%` : '📎 Загрузить документ (PDF, Word, фото — до 20 МБ)'}
+        </span>
       </button>
 
       {loading ? (
@@ -163,7 +225,7 @@ export default function DocumentsPage() {
       ) : (
         <div className="space-y-3">
           {documents.map((doc) => (
-            <DocumentCard key={doc._id} doc={doc} onDelete={handleDelete} />
+            <DocumentCard key={doc._id} doc={doc} onOpen={handleOpen} onDelete={handleDelete} />
           ))}
         </div>
       )}

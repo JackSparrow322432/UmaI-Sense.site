@@ -9,6 +9,8 @@ const userSchema = new Schema<IUser>(
     role: { type: String, enum: ['parent', 'trainer', 'admin'], required: true },
     password: { type: String, select: false },
     isVerified: { type: Boolean, default: false },
+    // Роль до назначения администратором — возвращается при снятии прав
+    formerRole: { type: String, enum: ['parent', 'trainer'] },
   },
   { timestamps: true }
 );

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { protect } from '../middleware/auth.middleware';
-import { upload, uploadImage } from '../utils/upload';
+import { upload, uploadImage, InvalidFileError } from '../utils/upload';
 
 const router = Router();
 
@@ -13,6 +13,10 @@ router.post('/image', protect, upload.single('image'), async (req: Request, res:
     const url = await uploadImage(req.file);
     res.json({ url });
   } catch (err) {
+    if (err instanceof InvalidFileError) {
+      res.status(400).json({ message: err.message });
+      return;
+    }
     console.error('[Upload] Error:', err);
     res.status(500).json({ message: 'Ошибка загрузки изображения' });
   }

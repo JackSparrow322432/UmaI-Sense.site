@@ -51,6 +51,17 @@ export const createIndexes = async (): Promise<void> => {
   await idx('invitecodes', { code: 1 }, { unique: true });
   await idx('invitecodes', { expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL — auto-delete expired codes
 
+  // ─── Запись на занятия ─────────────────────────────────────────────────────
+  await idx('enrollmentrequests', { status: 1, createdAt: -1 });
+  await idx('enrollmentrequests', { parentId: 1, createdAt: -1 });
+  await idx('assignments', { accessCode: 1 }, { unique: true });
+  await idx('assignments', { trainerId: 1, status: 1 });
+  await idx('assignments', { requestId: 1 });
+  await idx('sessions', { date: 1, startTime: 1 });
+  await idx('sessions', { trainerId: 1, date: 1 });
+  await idx('sessions', { parentId: 1, date: 1 });
+  await idx('sessions', { assignmentId: 1, date: 1 });
+
   // ─── Milestones ────────────────────────────────────────────────────────────
   await idx('milestones', { direction: 1, ageGroup: 1 });
 

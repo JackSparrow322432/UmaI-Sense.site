@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { adminApi } from '../../api';
 import type { User, Child } from '../../types';
+import { useAuthStore } from '../../store/authStore';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ const getAge = (dob: string) => {
 const ROLE_CFG = {
   parent:  { label: 'Родитель', color: '#E07628', bg: '#FFF3EA' },
   trainer: { label: 'Тренер',   color: '#60A5FA', bg: '#EFF6FF' },
+  admin:   { label: 'Администратор', color: '#7C3AED', bg: '#F5F3FF' },
 };
 
 // ─── Child row ────────────────────────────────────────────────────────────────
@@ -85,6 +87,8 @@ export default function AdminUserDetailPage() {
   const [user,     setUser]     = useState<User | null>(null);
   const [children, setChildren] = useState<Child[]>([]);
   const [loading,  setLoading]  = useState(true);
+  const [savingRole, setSavingRole] = useState(false);
+  const me = useAuthStore((s) => s.user);
 
   useEffect(() => {
     if (!id) return;
@@ -111,6 +115,25 @@ export default function AdminUserDetailPage() {
   if (!user) return null;
 
   const roleCfg = ROLE_CFG[user.role as keyof typeof ROLE_CFG];
+  const isSelf = me?._id === user._id;
+
+  const toggleAdmin = async () => {
+    const makeAdmin = user.role !== 'admin';
+    const text = makeAdmin
+      ? `Назначить ${user.name || user.email} администратором?\n\nАдминистратор видит заявки, данные всех детей (включая ИИН) и может назначать других администраторов. Интерфейс родителя/тренера у этого аккаунта будет недоступен, пока права не снимут.`
+      : `Снять права администратора с ${user.name || user.email}? Пользователь вернётся к прежней роли.`;
+    if (!confirm(text)) return;
+    setSavingRole(true);
+    try {
+      const { data } = await adminApi.setAdmin(user._id, makeAdmin);
+      setUser(data);
+      toast.success(makeAdmin ? 'Назначен администратором' : 'Права администратора сняты');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Ошибка');
+    } finally {
+      setSavingRole(false);
+    }
+  };
   const childrenLabel = user.role === 'trainer' ? 'Доступ к профилям' : 'Дети';
 
   return (
@@ -172,7 +195,31 @@ export default function AdminUserDetailPage() {
         </div>
       </div>
 
+      {/* Права администратора */}
+      <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Права администратора</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {user.role === 'admin'
+              ? isSelf ? 'Это вы. Снять права с себя нельзя — попросите другого администратора.' : 'Пользователь — администратор'
+              : 'Назначить этого пользователя администратором'}
+          </p>
+        </div>
+        {!(user.role === 'admin' && isSelf) && (
+          <button
+            onClick={toggleAdmin}
+            disabled={savingRole || (!user.isVerified && user.role !== 'admin')}
+            className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition disabled:opacity-50 ${
+              user.role === 'admin' ? 'text-red-500 hover:bg-red-50' : 'bg-[#7C3AED] hover:bg-[#6D28D9] text-white'
+            }`}
+          >
+            {savingRole ? '…' : user.role === 'admin' ? 'Снять права' : 'Сделать админом'}
+          </button>
+        )}
+      </div>
+
       {/* Children / Access */}
+      {user.role !== 'admin' && (
       <div>
         <p className="text-xs font-medium text-gray-500 mb-3">
           {childrenLabel} · {children.length}
@@ -185,7 +232,7 @@ export default function AdminUserDetailPage() {
             </p>
             <p className="text-xs text-gray-400">
               {user.role === 'trainer'
-                ? 'Тренер ещё не принял ни одного приглашения'
+                ? 'Администратор ещё не записал к тренеру детей, или тренер не ввёл код доступа'
                 : 'Родитель ещё не создал профили детей'}
             </p>
           </div>
@@ -197,6 +244,7 @@ export default function AdminUserDetailPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

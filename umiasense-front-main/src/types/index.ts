@@ -14,10 +14,18 @@ export interface User {
   updatedAt: string;
 }
 
+export interface AdaptiveSkating {
+  hasExperience: boolean;
+  when?: string;
+  details?: string;
+}
+
 export interface Child {
   _id: string;
   parentId: string;
   name: string;
+  lastName?: string;
+  iin?: string;
   dateOfBirth: string;
   photo?: string;
   diagnosis?: string;
@@ -35,7 +43,10 @@ export interface Child {
   };
   behavioralNotes?: string;
   goals?: Array<{ title: string; description?: string }>;
+  adaptiveSkating?: AdaptiveSkating;
   trainers: User[];
+  /** Тренеры, записанные администратором (только в GET /children/:id) — родитель не может их откреплять */
+  managedTrainerIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -111,7 +122,9 @@ export interface Recommendation {
   generatedAt: string;
 }
 
-export type NotificationType = 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task';
+export type NotificationType =
+  | 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task'
+  | 'enrollment_update' | 'trainer_assigned' | 'session_cancelled';
 
 export interface Article {
   _id: string;
@@ -197,11 +210,82 @@ export interface DocumentItem {
   _id: string;
   childId: string;
   uploadedBy: Pick<User, '_id' | 'name' | 'role'> | string;
-  fileUrl: string;
+  fileUrl?: string;   // только у старых документов до переезда
   fileName: string;
   mimeType: string;
-  aiStatus: 'pending' | 'done' | 'failed';
+  size?: number;
+  status?: 'uploading' | 'ready';
+  aiStatus: 'pending' | 'done' | 'failed' | 'disabled';
   aiExplanation?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Запись на занятия ───────────────────────────────────────────────────────
+
+/** 1 = Пн … 7 = Вс */
+export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export interface ScheduleSlot { weekday: Weekday; startTime: string }
+
+type ChildBrief = Pick<Child, '_id' | 'name' | 'lastName' | 'photo' | 'dateOfBirth'> &
+  Partial<Pick<Child, 'iin' | 'diagnosis' | 'communicationMethod' | 'adaptiveSkating'>>;
+type UserBrief = Pick<User, '_id' | 'name'> & Partial<Pick<User, 'email' | 'photo'>>;
+
+export interface Assignment {
+  _id: string;
+  requestId: string;
+  childId: string | ChildBrief;
+  parentId: string | UserBrief;
+  trainerId: string | UserBrief;
+  slots: ScheduleSlot[];
+  durationMin: number;
+  startDate: string;
+  endDate: string;
+  accessCode?: string;   // виден только администратору
+  codeUsed: boolean;
+  activatedAt?: string;
+  status: 'active' | 'cancelled';
+  cancelReason?: string;
+  contactPhone?: string; // в карточке тренера после ввода кода
+  createdAt: string;
+}
+
+export type RequestStatus = 'pending' | 'approved' | 'cancelled';
+
+export interface EnrollmentRequest {
+  _id: string;
+  parentId: string | UserBrief;
+  childId: ChildBrief;
+  preferredDays: Weekday[];
+  preferredTimeFrom?: string;
+  preferredTimeTo?: string;
+  contactPhone: string;
+  comment?: string;
+  status: RequestStatus;
+  cancelledBy?: 'parent' | 'admin';
+  adminComment?: string;
+  assignments: Assignment[];
+  createdAt: string;
+}
+
+export interface Session {
+  _id: string;
+  assignmentId: string;
+  childId: Pick<Child, '_id' | 'name' | 'lastName' | 'photo'>;
+  trainerId: UserBrief;
+  parentId: UserBrief;
+  date: string;      // 'YYYY-MM-DD'
+  startTime: string; // 'HH:mm'
+  endTime: string;
+  status: 'scheduled' | 'cancelled';
+  cancelReason?: string;
+}
+
+export interface AccessLogEntry {
+  _id: string;
+  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted';
+  userId?: Pick<User, '_id' | 'name' | 'role'> | null;
+  role?: UserRole;
+  createdAt: string;
 }

@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from './env';
 
 export const generateToken = (id: string, role: 'parent' | 'trainer' | 'admin'): string => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET || 'secret', { expiresIn: '30d' });
+  return jwt.sign({ id, role }, getJwtSecret(), { expiresIn: '30d' });
 };
 
 export const generateInviteCode = (): string => {

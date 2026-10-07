@@ -128,7 +128,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhotoChange} />
 
           {/* Name */}
           <div>

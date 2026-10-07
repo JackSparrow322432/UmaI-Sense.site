@@ -7,7 +7,7 @@ import TaskRating from '../models/TaskRating';
 import Notification from '../models/Notification';
 import User from '../models/User';
 import Child from '../models/Child';
-import { uploadImage } from '../utils/upload';
+import { uploadImage, InvalidFileError } from '../utils/upload';
 
 const getChildWithAccess = async (childId: string, userId?: string, role?: string) => {
   const child = await Child.findById(childId);
@@ -220,6 +220,10 @@ export const uploadTaskSubmission = async (req: AuthRequest, res: Response): Pro
 
     res.json(taskRating);
   } catch (err) {
+    if (err instanceof InvalidFileError) {
+      res.status(400).json({ message: err.message });
+      return;
+    }
     console.error('[Tasks] submission upload error:', err);
     res.status(500).json({ message: 'Ошибка загрузки файла' });
   }

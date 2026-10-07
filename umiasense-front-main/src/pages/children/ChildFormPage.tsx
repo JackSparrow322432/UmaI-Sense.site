@@ -1,7 +1,11 @@
 import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { childrenApi, uploadApi } from '../../api';
+import AdaptiveSkatingFields, {
+  emptySkating, validateSkating, skatingPayload, type SkatingForm,
+} from '../../components/enrollment/AdaptiveSkatingFields';
+import { isValidIin, iinMatchesBirthDate } from '../../utils/enrollment';
 
 const COMMUNICATION_OPTIONS = [
   'Вербальная речь', 'ААС-устройство', 'PECS карточки', 'Жестовый язык', 'Другое',
@@ -29,7 +33,11 @@ export default function ChildFormPage() {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [form, setForm] = useState({ name: '', dateOfBirth: '', diagnosis: '', communicationMethod: '', photo: '' });
+  const [form, setForm] = useState({
+    name: '', lastName: '', iin: '', dateOfBirth: '', diagnosis: '', communicationMethod: '', photo: '',
+  });
+  const [skating, setSkating] = useState<SkatingForm>(emptySkating());
+  const [consent, setConsent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -49,18 +57,28 @@ export default function ChildFormPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.dateOfBirth) { toast.error('Имя и дата рождения обязательны'); return; }
+    if (!form.name.trim() || !form.lastName.trim() || !form.dateOfBirth) {
+      toast.error('Имя, фамилия и дата рождения обязательны'); return;
+    }
+    if (!isValidIin(form.iin)) { toast.error('Проверьте ИИН — 12 цифр'); return; }
+    const skatingError = validateSkating(skating);
+    if (skatingError) { toast.error(skatingError); return; }
+    if (!consent) { toast.error('Нужно согласие на обработку данных ребёнка'); return; }
     setSaving(true);
     try {
       const { data } = await childrenApi.create({
         name: form.name.trim(),
+        lastName: form.lastName.trim(),
+        iin: form.iin,
+        adaptiveSkating: skatingPayload(skating),
+        consent,
         dateOfBirth: form.dateOfBirth,
         diagnosis: form.diagnosis.trim() || undefined,
         communicationMethod: form.communicationMethod || undefined,
         photo: form.photo || undefined,
       });
-      toast.success('Профиль создан');
-      navigate(`/children/${data._id}`);
+      toast.success('Профиль создан. Теперь выберите удобные дни занятий');
+      navigate(`/requests/new?childId=${data._id}`);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Ошибка сохранения');
     } finally { setSaving(false); }
@@ -107,7 +125,7 @@ export default function ChildFormPage() {
               )}
             </div>
             <p className="text-xs text-gray-400">Фото профиля (необязательно)</p>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhoto} />
           </div>
 
           <div className="border-t border-gray-100" />
@@ -117,6 +135,27 @@ export default function ChildFormPage() {
             <label className={labelClass}>Имя <span className="text-[#E07628]">*</span></label>
             <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)}
               placeholder="Введите имя" required autoFocus className={inputClass} />
+          </div>
+
+          {/* Last name */}
+          <div>
+            <label className={labelClass}>Фамилия <span className="text-[#E07628]">*</span></label>
+            <input type="text" value={form.lastName} onChange={(e) => set('lastName', e.target.value)}
+              placeholder="Введите фамилию" required className={inputClass} />
+          </div>
+
+          {/* IIN */}
+          <div>
+            <label className={labelClass}>ИИН ребёнка <span className="text-[#E07628]">*</span></label>
+            <input type="text" inputMode="numeric" value={form.iin}
+              onChange={(e) => set('iin', e.target.value.replace(/\D/g, '').slice(0, 12))}
+              placeholder="12 цифр" required className={inputClass + ' tracking-wider'} />
+            {form.iin.length === 12 && !isValidIin(form.iin) && (
+              <p className="text-xs text-red-500 mt-1">ИИН не прошёл проверку — проверьте цифры</p>
+            )}
+            {form.iin.length >= 6 && form.dateOfBirth && !iinMatchesBirthDate(form.iin, form.dateOfBirth) && (
+              <p className="text-xs text-amber-600 mt-1">Первые 6 цифр ИИН не совпадают с датой рождения — проверьте</p>
+            )}
           </div>
 
           {/* DOB */}
@@ -147,13 +186,27 @@ export default function ChildFormPage() {
             </select>
           </div>
 
+          {/* Adaptive skating — обязательно */}
+          <AdaptiveSkatingFields value={skating} onChange={setSkating} />
+
+          {/* Согласие законного представителя (Закон РК «О персональных данных и их защите») */}
+          <label className="flex items-start gap-2.5 text-xs text-gray-600 leading-relaxed cursor-pointer">
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[#E07628]" />
+            <span>
+              Как законный представитель ребёнка я даю согласие на сбор и обработку его персональных данных,
+              включая ИИН и сведения о здоровье (диагноз, медицинские документы), в целях организации занятий,
+              в соответствии с <Link to="/privacy" target="_blank" className="text-[#E07628] underline">Политикой конфиденциальности</Link>.
+              <span className="text-[#E07628]"> *</span>
+            </span>
+          </label>
+
           {/* Actions */}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={() => navigate('/children')}
               className="flex-1 border border-gray-200 text-gray-500 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50 transition">
               Отмена
             </button>
-            <button type="submit" disabled={saving || uploading || !form.name.trim() || !form.dateOfBirth}
+            <button type="submit" disabled={saving || uploading || !form.name.trim() || !form.lastName.trim() || !form.dateOfBirth || !isValidIin(form.iin) || !!validateSkating(skating) || !consent}
               className="flex-1 bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl py-3 text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
               {saving ? 'Сохранение...' : 'Создать профиль'}
             </button>

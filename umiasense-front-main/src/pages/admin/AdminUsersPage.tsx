@@ -10,14 +10,16 @@ const formatDate = (iso: string) =>
 const ROLE_CFG = {
   parent:  { label: 'Родитель', color: '#E07628', bg: '#FFF3EA' },
   trainer: { label: 'Тренер',   color: '#60A5FA', bg: '#EFF6FF' },
+  admin:   { label: 'Администратор', color: '#7C3AED', bg: '#F5F3FF' },
 };
 
-type RoleFilter = 'all' | 'parent' | 'trainer';
+type RoleFilter = 'all' | 'parent' | 'trainer' | 'admin';
 
 const FILTERS: { key: RoleFilter; label: string }[] = [
   { key: 'all',     label: 'Все' },
   { key: 'parent',  label: 'Родители' },
   { key: 'trainer', label: 'Тренеры' },
+  { key: 'admin',   label: 'Админы' },
 ];
 
 export default function AdminUsersPage() {
@@ -37,6 +39,7 @@ export default function AdminUsersPage() {
     all:     users.length,
     parent:  users.filter((u) => u.role === 'parent').length,
     trainer: users.filter((u) => u.role === 'trainer').length,
+    admin:   users.filter((u) => u.role === 'admin').length,
   }), [users]);
 
   const filtered = useMemo(() => {

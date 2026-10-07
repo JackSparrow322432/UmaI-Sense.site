@@ -1,12 +1,28 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import { Types } from 'mongoose';
 import { protect } from '../middleware/auth.middleware';
-import { upload } from '../utils/upload';
-import { listDocuments, uploadDocument, deleteDocument } from '../controllers/documents.controller';
+import {
+  listDocuments, createUploadUrl, completeUpload, getDownloadUrl, deleteDocument,
+} from '../controllers/documents.controller';
 
 const router = Router();
 
-router.get('/:childId', protect, listDocuments);
-router.post('/:childId', protect, upload.single('file'), uploadDocument);
-router.delete('/:childId/:documentId', protect, deleteDocument);
+router.use(protect);
+
+const checkObjectId = (_req: Request, res: Response, next: NextFunction, value: string) => {
+  if (!Types.ObjectId.isValid(value)) {
+    res.status(400).json({ message: 'Некорректный идентификатор' });
+    return;
+  }
+  next();
+};
+router.param('childId', checkObjectId);
+router.param('documentId', checkObjectId);
+
+router.get('/:childId', listDocuments);
+router.post('/:childId/upload-url', createUploadUrl);
+router.post('/:childId/:documentId/complete', completeUpload);
+router.get('/:childId/:documentId/download', getDownloadUrl);
+router.delete('/:childId/:documentId', deleteDocument);
 
 export default router;
