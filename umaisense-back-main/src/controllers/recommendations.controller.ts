@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Types } from 'mongoose';
 import OpenAI from 'openai';
 import { AuthRequest } from '../types';
 import Recommendation from '../models/Recommendation';
@@ -8,6 +9,8 @@ import Emotion from '../models/Emotion';
 import Activity from '../models/Activity';
 import DiaryEntry from '../models/DiaryEntry';
 import Notification from '../models/Notification';
+import { Scrub, makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU } from '../utils/anonymize';
+import { hasActiveConsent } from '../utils/consent';
 
 // ─── OpenAI client (only initialised when key is present) ────────────────────
 
@@ -17,95 +20,26 @@ const getOpenAI = (): OpenAI | null => {
   return new OpenAI({ apiKey: key });
 };
 
-// ─── Formatting helpers ───────────────────────────────────────────────────────
-
-const getAge = (dob: Date): string => {
-  const y = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000));
-  if (y % 10 === 1 && y % 100 !== 11) return `${y} год`;
-  if ([2, 3, 4].includes(y % 10) && ![12, 13, 14].includes(y % 100)) return `${y} года`;
-  return `${y} лет`;
-};
-
-const daysAgoLabel = (date: Date): string => {
-  const d = Math.floor((Date.now() - date.getTime()) / 86400000);
-  if (d === 0) return 'сегодня';
-  if (d === 1) return 'вчера';
-  return `${d} дн назад`;
-};
-
-const MOOD_RU: Record<string, string> = {
-  calm: 'Спокойный', happy: 'Радостный', anxious: 'Тревожный',
-  overwhelmed: 'Перегруженный', sad: 'Грустный', angry: 'Злой', excited: 'Возбуждённый',
-};
-const CAT_RU: Record<string, string> = {
-  hobby: 'Хобби', therapy: 'Терапия', study: 'Учёба',
-  walk: 'Прогулка', social: 'Социальное', other: 'Другое',
-};
-const TAG_RU: Record<string, string> = {
-  trigger: 'Триггер', mood: 'Настроение', info: 'Заметка', progress: 'Прогресс',
-};
-
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
 /**
- * Промпт для внешнего ИИ-сервиса (OpenAI, за пределами РК). Из него убраны имя, фамилия,
- * ИИН и дата рождения ребёнка. В свободном тексте (дневник, заметки) скрываются имена
- * ребёнка, родителя и тренеров (в любых падежах — по основе слова), ИИН, телефоны и email.
- * Полной гарантии обезличивания свободного текста это не даёт — см. политику конфиденциальности.
+ * Промпт для внешнего ИИ-сервиса (OpenAI, за пределами РК). Обезличивание — utils/anonymize.ts.
+ * Функция scrub создаётся на каждый запрос (без общего состояния между запросами).
  */
-const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-const namePatterns = (names: string[]): RegExp[] =>
-  names
-    .flatMap((n) => String(n ?? '').split(/\s+/))
-    .map((w) => w.trim())
-    .filter((w) => w.length >= 3)
-    // основа слова + до 2 букв падежного окончания: Иван → Ивана, Иваном; Алия → Али: Алии, Алией.
-    // Ограничение окончания не даёт задеть обычные слова (Иван ≠ Иваново).
-    .map((w) => (w.length >= 4 && /[аяйьеиоуыюэaeiouy]$/i.test(w) ? w.slice(0, -1) : w))
-    .map((stem) => new RegExp(`(?<![\\p{L}])${escapeRe(stem)}\\p{L}{0,2}(?![\\p{L}])`, 'giu'));
-
-let scrubPatterns: RegExp[] = [];
-
-const scrub = (text: string, _child?: any): string => {
-  let t = String(text ?? '')
-    .replace(/\b\d{12}\b/g, '[ИИН]')
-    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[email]')
-    .replace(/(\+?\d[\d\s()-]{8,}\d)/g, '[телефон]');
-  for (const re of scrubPatterns) t = t.replace(re, '[имя]');
-  return t;
-};
-
-const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[]): string => {
+const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[], scrub: Scrub): string => {
   const L: string[] = [];
 
   L.push('Ты — опытный специалист по развитию детей с особыми потребностями.');
   L.push('Составь персональные практические рекомендации для родителя на основе реальных данных о ребёнке.');
   L.push('');
   L.push('=== ПРОФИЛЬ РЕБЁНКА ===');
-  // Имя, фамилия, ИИН и дата рождения в ИИ не передаются — только обезличенный профиль
-  L.push(`Возраст: ${getAge(child.dateOfBirth)}`);
-  if (child.diagnosis)           L.push(`Диагноз: ${child.diagnosis}`);
-  if (child.communicationMethod) L.push(`Способ коммуникации: ${child.communicationMethod}`);
-  if (child.triggers?.length)    L.push(`Триггеры: ${scrub(child.triggers.join(', '))}`);
-  if (child.fears?.length)       L.push(`Страхи: ${scrub(child.fears.join(', '))}`);
-  if (child.interests?.length)   L.push(`Интересы: ${scrub(child.interests.join(', '))}`);
-  if (child.calmingActivities?.length) L.push(`Успокаивающие активности: ${scrub(child.calmingActivities.join(', '))}`);
-  if (child.behavioralNotes)     L.push(`Поведенческие заметки: ${scrub(child.behavioralNotes, child)}`);
-  const sp = child.sensoryProfile;
-  if (sp) {
-    const parts = [];
-    if (sp.sound) parts.push(`звук: ${sp.sound}`);
-    if (sp.light) parts.push(`свет: ${sp.light}`);
-    if (sp.touch) parts.push(`прикосновения: ${sp.touch}`);
-    if (parts.length) L.push(`Сенсорный профиль: ${parts.join(', ')}`);
-  }
+  L.push(...childProfileLines(child, scrub));
 
   if (emotions.length > 0) {
     L.push('');
     L.push('=== ЭМОЦИИ (последние 7 дней) ===');
     emotions.forEach((e) => {
-      const comment = e.comment ? ` — «${scrub(e.comment, child)}»` : '';
+      const comment = e.comment ? ` — «${scrub(e.comment)}»` : '';
       L.push(`- ${MOOD_RU[e.mood] ?? e.mood} (${e.intensity}/5)${comment} · ${daysAgoLabel(e.createdAt)}`);
     });
   }
@@ -115,8 +49,8 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
     L.push('=== АКТИВНОСТИ (последние 10) ===');
     activities.forEach((a) => {
       const dur = a.duration ? `, ${a.duration} мин` : '';
-      const notes = a.notes ? ` — «${scrub(a.notes, child)}»` : '';
-      L.push(`- ${a.name} (${CAT_RU[a.category] ?? a.category}${dur})${notes} · ${daysAgoLabel(a.date)}`);
+      const notes = a.notes ? ` — «${scrub(a.notes)}»` : '';
+      L.push(`- ${scrub(a.name)} (${CAT_RU[a.category] ?? a.category}${dur})${notes} · ${daysAgoLabel(a.date)}`);
     });
   }
 
@@ -124,7 +58,7 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
     L.push('');
     L.push('=== ДНЕВНИК НАБЛЮДЕНИЙ (последние 5) ===');
     diary.forEach((d) => {
-      L.push(`- [${TAG_RU[d.tag] ?? d.tag}] «${scrub(d.text, child)}» · ${daysAgoLabel(d.createdAt)}`);
+      L.push(`- [${TAG_RU[d.tag] ?? d.tag}] «${scrub(d.text)}» · ${daysAgoLabel(d.createdAt)}`);
     });
   }
 
@@ -175,6 +109,10 @@ const FALLBACK_CONTENT = {
 
 export const getRecommendations = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // Проверка владельца: раньше любой родитель мог прочитать рекомендации чужого ребёнка по его id
+    if (!Types.ObjectId.isValid(String(req.params['childId']))) { res.status(400).json({ message: 'Некорректный идентификатор' }); return; }
+    const own = await Child.exists({ _id: req.params['childId'], parentId: req.user!.id });
+    if (!own) { res.status(404).json({ message: 'Child not found' }); return; }
     const recommendations = await Recommendation.find({ childId: req.params['childId'] })
       .sort({ generatedAt: -1 });
     res.json(recommendations);
@@ -185,6 +123,7 @@ export const getRecommendations = async (req: AuthRequest, res: Response): Promi
 
 export const generateRecommendation = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    if (!Types.ObjectId.isValid(String(req.params['childId']))) { res.status(400).json({ message: 'Некорректный идентификатор' }); return; }
     const child = await Child.findOne({ _id: req.params['childId'], parentId: req.user!.id });
     if (!child) { res.status(404).json({ message: 'Child not found' }); return; }
 
@@ -195,13 +134,16 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
     ]);
 
     let content = FALLBACK_CONTENT;
-    const openai = getOpenAI();
+    // Данные (даже обезличенные) уходят во внешний ИИ за пределами РК только при согласии
+    // родителя на трансграничную передачу (ст. 16 Закона РК № 94-V). Без согласия — общие советы.
+    const crossBorderOk = await hasActiveConsent(req.user!.id, 'cross_border');
+    const openai = crossBorderOk ? getOpenAI() : null;
 
     if (openai) {
       // Имена для скрытия в свободном тексте: ребёнок, родитель, тренеры
       const people = await User.find({ _id: { $in: [child.parentId, ...(child.trainers ?? [])] } }).select('name').lean();
-      scrubPatterns = namePatterns([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
-      const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary);
+      const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
+      const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary, scrub);
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -222,6 +164,8 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
       } catch {
         console.error('[AI] Could not parse OpenAI JSON response:', raw);
       }
+    } else if (!crossBorderOk) {
+      console.warn('[AI] No cross_border consent — using general recommendations');
     } else {
       console.warn('[AI] OPENAI_API_KEY not set — using placeholder recommendations');
     }

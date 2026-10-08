@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { useNotifStore } from '../../store/notifStore';
 import { notificationsApi } from '../../api';
+import ConsentUpdateModal from '../legal/ConsentUpdateModal';
 
 const HOME_NAV_ITEM = {
   to: '/home',
@@ -131,7 +132,9 @@ export default function Layout() {
     navigate('/login');
   };
 
-  const SidebarContent = () => (
+  // Обычная функция, а не компонент: компонент, объявленный внутри рендера, пересоздаётся
+  // на каждом рендере и теряет состояние (react-hooks/static-components)
+  const renderSidebar = () => (
     <>
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
         {NAV_ITEMS.map(({ to, label, icon }) => (
@@ -190,7 +193,7 @@ export default function Layout() {
             <span className="font-semibold text-gray-900 text-sm">UmaiSense</span>
           </div>
         </div>
-        <SidebarContent />
+        {renderSidebar()}
       </aside>
 
       <header className="sm:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-gray-200 px-4 h-14 flex items-center justify-between">
@@ -261,12 +264,19 @@ export default function Layout() {
             </svg>
           </button>
         </div>
-        <SidebarContent />
+        {renderSidebar()}
       </aside>
+
+      {/* Подтверждение обновлённой политики (если нет согласий текущей редакции) */}
+      <ConsentUpdateModal />
 
       <main className="sm:ml-56 pt-14 sm:pt-0 min-h-screen">
         <div className="max-w-3xl mx-auto px-4 sm:px-8 py-8">
           <Outlet />
+          <footer className="mt-12 pt-4 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-400">
+            <Link to="/privacy" className="hover:text-[#E07628]">Политика конфиденциальности</Link>
+            <Link to="/agreement" className="hover:text-[#E07628]">Пользовательское соглашение</Link>
+          </footer>
         </div>
       </main>
     </div>

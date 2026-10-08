@@ -16,9 +16,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // 401 на /auth/* (неверный пароль, код) — это обычная ошибка формы: не перезагружаем страницу,
+    // иначе сообщение «Неверный пароль» терялось из-за редиректа
+    const url = String(error.config?.url ?? '');
+    if (error.response?.status === 401 && !url.startsWith('/auth/login') && !url.includes('/auth/verify') && !url.includes('/auth/reset')) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') window.location.href = '/login';
     }
     return Promise.reject(error);
   }

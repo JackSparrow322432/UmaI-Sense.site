@@ -11,6 +11,8 @@ const userSchema = new Schema<IUser>(
     isVerified: { type: Boolean, default: false },
     // Роль до назначения администратором — возвращается при снятии прав
     formerRole: { type: String, enum: ['parent', 'trainer'] },
+    // Время смены пароля: токены, выданные раньше, перестают действовать (выход на всех устройствах)
+    passwordChangedAt: { type: Date },
   },
   { timestamps: true }
 );

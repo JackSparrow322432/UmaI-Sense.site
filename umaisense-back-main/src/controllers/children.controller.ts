@@ -142,6 +142,10 @@ export const createChild = async (req: AuthRequest, res: Response): Promise<void
       res.status(400).json({ message: 'Необходимо согласие законного представителя на обработку данных ребёнка' });
       return;
     }
+    if (req.body?.consentThirdParty !== true) {
+      res.status(400).json({ message: 'Необходимо согласие на передачу данных ребёнка тренерам и другим получателям из Политики' });
+      return;
+    }
     const body = pickEditable(req.body) as any;
     const child = await Child.create({
       ...body,
@@ -152,6 +156,7 @@ export const createChild = async (req: AuthRequest, res: Response): Promise<void
       trainers: [],
     });
     await recordConsent(req, { userId: req.user?.id as string, childId: child._id, type: 'child_data' });
+    await recordConsent(req, { userId: req.user?.id as string, childId: child._id, type: 'third_party_transfer' });
     res.status(201).json(child);
   } catch {
     res.status(500).json({ message: 'Server error' });

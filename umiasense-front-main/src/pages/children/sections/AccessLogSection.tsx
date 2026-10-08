@@ -8,6 +8,8 @@ const ACTION: Record<AccessLogEntry['action'], string> = {
   'document.delete': 'удалил(а) документ',
   'child.view': 'открыл(а) профиль',
   'child.access_granted': 'получил(а) доступ по коду',
+  'screening.run': 'запустил(а) ИИ-скрининг',
+  'screening.view': 'открыл(а) отчёт ИИ-скрининга',
 };
 const ROLE: Record<string, string> = { parent: 'Родитель', trainer: 'Тренер', admin: 'Администратор' };
 

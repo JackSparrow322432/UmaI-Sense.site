@@ -1,31 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { documentsApi } from '../../api';
 import type { DocumentItem } from '../../types';
 import { uploadDirect } from '../../utils/directUpload';
+import FileDropzone from '../../components/common/FileDropzone';
+import { UPLOAD_RULES, guessMime } from '../../utils/uploadRules';
 
-const MAX_SIZE = 20 * 1024 * 1024;
-
-// Браузер не всегда знает MIME-тип (например, .docx на компьютере без Office или .heic) — подставляем по расширению
-const MIME_BY_EXT: Record<string, string> = {
-  pdf: 'application/pdf',
-  doc: 'application/msword',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  heic: 'image/heic',
-  heif: 'image/heif',
-};
-const ALLOWED = new Set(Object.values(MIME_BY_EXT));
-const ACCEPT = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.heif';
-
-const guessMime = (file: File): string => {
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  if (file.type && ALLOWED.has(file.type)) return file.type;
-  return MIME_BY_EXT[ext] ?? file.type;
-};
+// Форматы, размер и подсказка — из общего конфига (совпадает с сервером: DOCUMENT_TYPES в fileTypes.ts)
+const RULE = UPLOAD_RULES.document;
 
 const formatSize = (bytes?: number) => {
   if (!bytes) return '';
@@ -100,7 +83,6 @@ function DocumentCard({
 export default function DocumentsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,20 +102,10 @@ export default function DocumentsPage() {
 
   useEffect(() => { fetchDocuments(); }, [id]);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (!file || !id) return;
-
-    const mimeType = guessMime(file);
-    if (!ALLOWED.has(mimeType)) {
-      toast.error('Можно загружать PDF, Word (DOC, DOCX) или фото (JPG, PNG, HEIC)');
-      return;
-    }
-    if (file.size > MAX_SIZE) {
-      toast.error('Файл больше 20 МБ');
-      return;
-    }
+  // Формат и размер уже проверены в FileDropzone
+  const handleFile = async (file: File) => {
+    if (!id) return;
+    const mimeType = guessMime(RULE, file);
 
     setProgress(0);
     try {
@@ -198,19 +170,13 @@ export default function DocumentsPage() {
         </p>
       </div>
 
-      <input ref={fileInputRef} type="file" accept={ACCEPT} onChange={handleFileChange} className="hidden" />
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploading}
-        className="relative w-full overflow-hidden border-2 border-dashed border-[#E07628]/30 rounded-2xl py-4 text-sm font-semibold text-[#E07628] hover:bg-[#FFF3EA] transition disabled:opacity-80"
-      >
-        {uploading && (
-          <span className="absolute inset-y-0 left-0 bg-[#FFF3EA] transition-all" style={{ width: `${progress}%` }} />
-        )}
-        <span className="relative">
-          {uploading ? `Загрузка… ${progress}%` : '📎 Загрузить документ (PDF, Word, фото — до 20 МБ)'}
-        </span>
-      </button>
+      <FileDropzone
+        rule={RULE}
+        title="📎 Загрузить документ"
+        uploading={uploading}
+        progress={progress}
+        onFile={handleFile}
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-gray-400">

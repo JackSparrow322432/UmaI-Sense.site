@@ -9,6 +9,7 @@ export interface IUser extends Document {
   role: 'parent' | 'trainer' | 'admin';
   formerRole?: 'parent' | 'trainer';
   password?: string;
+  passwordChangedAt?: Date;
   isVerified: boolean;
   createdAt: Date;
   updatedAt: Date;

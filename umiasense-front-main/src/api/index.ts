@@ -8,6 +8,7 @@ import type {
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
   Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry,
   EnrollmentRequest, Assignment, Session, ScheduleSlot, Weekday, RequestStatus,
+  ConsentStatus, ConsentType, Screening, ScreeningStatus,
 } from '../types';
 
 export const authApi = {
@@ -15,7 +16,7 @@ export const authApi = {
   resendOtp: (email: string) => api.post('/auth/resend-otp', { email }),
   verifyOtp: (email: string, code: string) =>
     api.post<{ verified: boolean; email: string; registrationToken: string }>('/auth/verify-otp', { email, code }),
-  completeRegistration: (data: { email: string; name: string; password: string; role: string; consent: boolean; registrationToken: string }) =>
+  completeRegistration: (data: { email: string; name: string; password: string; role: string; consent: boolean; consentThirdParty: boolean; consentCrossBorder: boolean; registrationToken: string }) =>
     api.post<{ token: string; user: User }>('/auth/complete-registration', data),
   login: (email: string, password: string) =>
     api.post<{ token: string; user: User }>('/auth/login', { email, password }),
@@ -28,10 +29,11 @@ export const authApi = {
 };
 
 export const uploadApi = {
-  image: (file: File) => {
+  // purpose определяет требования к разрешению на сервере (см. utils/uploadRules.ts)
+  image: (file: File, purpose: 'avatar' | 'cover' | 'submission' = 'avatar') => {
     const formData = new FormData();
     formData.append('image', file);
-    return api.post<{ url: string }>('/upload/image', formData, {
+    return api.post<{ url: string }>(`/upload/image?purpose=${purpose}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
@@ -40,7 +42,7 @@ export const uploadApi = {
 export const childrenApi = {
   getAll: () => api.get<Child[]>('/children'),
   getOne: (id: string) => api.get<Child>(`/children/${id}`),
-  create: (data: Partial<Child> & { consent: boolean }) => api.post<Child>('/children', data),
+  create: (data: Partial<Child> & { consent: boolean; consentThirdParty: boolean }) => api.post<Child>('/children', data),
   update: (id: string, data: Partial<Child>) => api.put<Child>(`/children/${id}`, data),
   delete: (id: string) => api.delete(`/children/${id}`),
   removeTrainer: (childId: string, trainerId: string) =>
@@ -193,4 +195,20 @@ export const enrollmentApi = {
   // Календарь
   getSessions: (from: string, to: string, filters?: { trainerId?: string; childId?: string }) =>
     api.get<Session[]>('/enrollment/sessions', { params: { from, to, ...filters } }),
+};
+
+// Согласия: просмотр, подтверждение новой редакции политики, отзыв необязательных
+export const consentsApi = {
+  get: () => api.get<ConsentStatus>('/consents'),
+  grant: (types: ConsentType[], childId?: string) => api.post('/consents', { types, childId }),
+  withdraw: (type: ConsentType) => api.post('/consents/withdraw', { type }),
+};
+
+// ИИ-скрининг ребёнка (родитель или администратор)
+export const screeningApi = {
+  status: (childId: string) => api.get<ScreeningStatus>(`/children/${childId}/screening/status`),
+  list: (childId: string) => api.get<Screening[]>(`/children/${childId}/screening`),
+  get: (childId: string, screeningId: string) => api.get<Screening>(`/children/${childId}/screening/${screeningId}`),
+  // ИИ отвечает до минуты — увеличенный таймаут
+  run: (childId: string) => api.post<Screening>(`/children/${childId}/screening`, {}, { timeout: 120_000 }),
 };

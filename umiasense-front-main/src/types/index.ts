@@ -292,8 +292,71 @@ export interface Session {
 
 export interface AccessLogEntry {
   _id: string;
-  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted';
+  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view';
   userId?: Pick<User, '_id' | 'name' | 'role'> | null;
   role?: UserRole;
   createdAt: string;
+}
+
+// ─── Согласия на обработку персональных данных ──────────────────────────────
+
+export type ConsentType = 'account' | 'child_data' | 'third_party_transfer' | 'cross_border' | 'ai_screening';
+
+export interface ConsentRecord {
+  _id: string;
+  type: ConsentType;
+  version: string;
+  childId?: { _id: string; name: string; lastName?: string } | null;
+  createdAt: string;
+  withdrawnAt?: string;
+}
+
+export interface ConsentStatus {
+  currentVersion: string;
+  missingRequired: ConsentType[];
+  active: { cross_border: boolean; ai_screening: boolean };
+  consents: ConsentRecord[];
+}
+
+// ─── ИИ-скрининг ─────────────────────────────────────────────────────────────
+
+export type ScreeningSection =
+  | 'basic' | 'sensory' | 'fears' | 'interests' | 'goals' | 'behavioral'
+  | 'skating' | 'documents' | 'observations' | 'milestones';
+
+export interface ScreeningResult {
+  summary: string;
+  strengths: string[];
+  attentionAreas: { area: string; observation: string; level: 'low' | 'medium' | 'high' }[];
+  risks: string[];
+  recommendationsParent: string[];
+  recommendationsTrainer: string[];
+  specialists: { specialist: string; reason: string }[];
+  missingData: { section: ScreeningSection; why: string }[];
+}
+
+export interface Screening {
+  _id: string;
+  childId: string;
+  provider: 'openai' | 'local';
+  aiModel: string;
+  status: 'pending' | 'done' | 'failed';
+  inputSummary: {
+    sections: string[];
+    periodDays: number;
+    counts: { emotions: number; activities: number; diary: number; milestones: number; documents: number };
+    documentsMode: 'none' | 'types_only' | 'text';
+    documentsSkipped?: number;
+  };
+  result?: ScreeningResult;
+  error?: string;
+  createdAt: string;
+}
+
+export interface ScreeningStatus {
+  provider: 'openai' | 'local' | 'off';
+  enabled: boolean;
+  documentsMode: 'none' | 'types_only' | 'text';
+  missingConsents: ConsentType[];
+  dailyLimit: number;
 }

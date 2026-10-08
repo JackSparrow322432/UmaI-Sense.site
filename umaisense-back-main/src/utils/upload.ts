@@ -4,7 +4,8 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import { isPublicS3Enabled, putPublicObject } from './storage';
-import { IMAGE_TYPES, MAX_IMAGE_SIZE, matchesSignature, extFor } from './fileTypes';
+import { IMAGE_TYPES, MAX_IMAGE_SIZE, IMAGE_FORMATS_LABEL, ImagePurpose, matchesSignature } from './fileTypes';
+import { processImage, ImageTooSmallError, ProcessedImage } from './imageProcessing';
 
 // ─── Cloudinary config ────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ const fileFilter = (
   if (IMAGE_TYPES[file.mimetype]) {
     cb(null, true);
   } else {
-    cb(new Error('Разрешены только изображения JPG, PNG, WebP или GIF'));
+    cb(new Error(`Разрешены только изображения ${IMAGE_FORMATS_LABEL}`));
   }
 };
 
@@ -57,21 +58,30 @@ if (!cloudinaryEnabled && !isPublicS3Enabled()) {
     console.warn('[Upload] Не удалось создать локальную папку uploads (read-only filesystem):', err);
   }
 }
-export const uploadImage = async (file: Express.Multer.File): Promise<string> => {
+export const uploadImage = async (file: Express.Multer.File, purpose: ImagePurpose = 'avatar'): Promise<string> => {
   // Проверяем реальный формат по первым байтам: MIME из браузера можно подделать
   if (!matchesSignature(IMAGE_TYPES, file.mimetype, file.buffer.subarray(0, 16))) {
     throw new InvalidFileError('Файл не является изображением');
   }
-  if (isPublicS3Enabled()) {
-    const key = `images/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${extFor(IMAGE_TYPES, file.mimetype)}`;
-    return putPublicObject(key, file.buffer, file.mimetype);
+  // Конвертация HEIC/AVIF, поворот, удаление EXIF/GPS, проверка разрешения, уменьшение
+  let img: ProcessedImage;
+  try {
+    img = await processImage(file.buffer, file.mimetype, purpose);
+  } catch (err) {
+    if (err instanceof ImageTooSmallError) throw new InvalidFileError(err.message);
+    console.error('[Upload] image processing failed:', err);
+    throw new InvalidFileError('Не удалось обработать изображение — файл повреждён или формат не поддерживается');
   }
-  return cloudinaryEnabled ? uploadToCloudinary(file) : saveLocally(file);
+  if (isPublicS3Enabled()) {
+    const key = `images/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${img.ext}`;
+    return putPublicObject(key, img.buffer, img.mimeType);
+  }
+  return cloudinaryEnabled ? uploadToCloudinary(img) : saveLocally(img);
 };
 
 export class InvalidFileError extends Error {}
 
-const uploadToCloudinary = (file: Express.Multer.File): Promise<string> =>
+const uploadToCloudinary = (file: ProcessedImage): Promise<string> =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
@@ -87,9 +97,9 @@ const uploadToCloudinary = (file: Express.Multer.File): Promise<string> =>
     stream.end(file.buffer);
   });
 
-const saveLocally = (file: Express.Multer.File): Promise<string> =>
+const saveLocally = (file: ProcessedImage): Promise<string> =>
   new Promise((resolve, reject) => {
-    const ext = `.${extFor(IMAGE_TYPES, file.mimetype)}`;
+    const ext = `.${file.ext}`;
     const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     fs.writeFile(path.join(uploadDir, filename), file.buffer, (err) => {
       if (err) return reject(err);

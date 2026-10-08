@@ -10,12 +10,13 @@ import { ChildMilestone } from '../models/Milestone';
 import EnrollmentRequest from '../models/EnrollmentRequest';
 import Assignment from '../models/Assignment';
 import Session from '../models/Session';
+import Screening from '../models/Screening';
 import { isProviderAvailable, removeStored, StorageProvider } from './documentStorage';
 import { todayStr } from './schedule';
 
 /**
  * Полное удаление данных ребёнка (по запросу родителя или при удалении аккаунта):
- * медицинские документы (вместе с файлами в хранилище), наблюдения, рекомендации, прогресс.
+ * медицинские документы (вместе с файлами в хранилище), наблюдения, рекомендации, ИИ-скрининги, прогресс.
  * Заявки обезличиваются (удаляются телефон и комментарий), записи к тренерам и будущие
  * занятия отменяются — чтобы у тренеров не остались «висящие» занятия.
  * Журнал доступа и согласия сохраняются: это доказательства законной обработки.
@@ -39,6 +40,7 @@ export const purgeChildData = async (childId: Types.ObjectId | string): Promise<
     Activity.deleteMany({ childId: id }),
     DiaryEntry.deleteMany({ childId: id }),
     Recommendation.deleteMany({ childId: id }),
+    Screening.deleteMany({ childId: id }),
     TaskRating.deleteMany({ childId: id }),
     ChildMilestone.deleteMany({ childId: id }),
     EnrollmentRequest.updateMany(

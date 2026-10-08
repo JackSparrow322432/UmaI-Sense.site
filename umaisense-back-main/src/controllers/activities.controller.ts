@@ -2,9 +2,12 @@ import { Response } from 'express';
 import { AuthRequest } from '../types';
 import Activity from '../models/Activity';
 import Child from '../models/Child';
+import { Types } from 'mongoose';
 
 const hasChildAccess = async (childId: string, userId: string): Promise<boolean> => {
-  const child = await Child.findById(childId);
+  // Некорректный id → просто «нет доступа», а не 500 от CastError
+  if (!Types.ObjectId.isValid(childId)) return false;
+  const child = await Child.findById(childId).select('parentId trainers');
   if (!child) return false;
   return (
     child.parentId.toString() === userId ||
@@ -39,9 +42,20 @@ export const addActivity = async (req: AuthRequest, res: Response): Promise<void
       res.status(403).json({ message: 'Access denied' });
       return;
     }
-    const activity = await Activity.create({ ...req.body, childId, recordedBy: req.user!.id });
+    // Только разрешённые поля (раньше ...req.body пропускал всё подряд)
+    const { name, category, date, duration, notes } = req.body ?? {};
+    const activity = await Activity.create({
+      name: typeof name === 'string' ? name.slice(0, 200) : name,
+      category,
+      date,
+      duration,
+      notes: typeof notes === 'string' ? notes.slice(0, 2000) : undefined,
+      childId,
+      recordedBy: req.user!.id,
+    });
     res.status(201).json(activity);
-  } catch {
+  } catch (err: any) {
+    if (err?.name === 'ValidationError') { res.status(400).json({ message: 'Некорректные данные' }); return; }
     res.status(500).json({ message: 'Server error' });
   }
 };
