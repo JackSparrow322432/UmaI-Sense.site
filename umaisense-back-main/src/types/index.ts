@@ -42,6 +42,10 @@ export interface IChild extends Document {
     when?: string;
     details?: string;
   };
+  skiExperience?: {
+    hasExperience: boolean;
+    when?: string;
+  };
   trainers: Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;

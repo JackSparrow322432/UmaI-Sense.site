@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { adminApi } from '../../api';
+import { skiText, adaptiveText } from '../../utils/enrollment';
 import type { Child, Emotion, Activity, DiaryEntry, User, MoodType, ActivityCategory, DiaryTag } from '../../types';
 
 // ─── Configs ─────────────────────────────────────────────────────────────────
@@ -159,13 +160,8 @@ export default function AdminChildDetailPage() {
               {getAge(child.dateOfBirth)}
               {child.iin && <> · ИИН <span className="tracking-wider">{child.iin}</span></>}
             </p>
-            {child.adaptiveSkating && (
-              <p className="text-xs text-gray-500 mt-1">
-                Адаптивное катание: {child.adaptiveSkating.hasExperience
-                  ? `занимался (${child.adaptiveSkating.when}) — ${child.adaptiveSkating.details}`
-                  : 'ранее не занимался'}
-              </p>
-            )}
+            <p className="text-xs text-gray-500 mt-1">Лыжи: {skiText(child)}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Адаптивное катание: {adaptiveText(child)}</p>
             {child.diagnosis && (
               <span className="inline-block mt-1.5 text-xs bg-[#FFF3EA] text-[#E07628] px-2 py-0.5 rounded-full font-semibold">
                 {child.diagnosis}

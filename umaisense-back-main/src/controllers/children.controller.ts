@@ -23,18 +23,30 @@ const validateChildPayload = (body: any, partial: boolean): string | null => {
   if (!partial || body.iin !== undefined) {
     if (!isValidIin(body.iin)) return 'Некорректный ИИН (12 цифр)';
   }
+  // 1. Катался ли когда-либо на лыжах или обучался — и когда именно
+  if (!partial || body.skiExperience !== undefined) {
+    const s = body.skiExperience;
+    if (!s || typeof s.hasExperience !== 'boolean') {
+      return 'Укажите, катался ли ребёнок когда-либо на лыжах или обучался';
+    }
+    if (s.hasExperience && !isFilled(s.when)) return 'Укажите, когда именно ребёнок катался на лыжах';
+    if (s.hasExperience && String(s.when).length > 300) return 'Слишком длинный ответ «Когда катался»';
+  }
+  // 2. Проходил ли адаптивное катание — и в какие даты
   if (!partial || body.adaptiveSkating !== undefined) {
     const a = body.adaptiveSkating;
     if (!a || typeof a.hasExperience !== 'boolean') {
-      return 'Укажите, был ли ребёнок ранее на адаптивном катании';
+      return 'Укажите, проходил ли ребёнок адаптивное катание';
     }
-    if (a.hasExperience) {
-      if (typeof a.when !== 'string' || !a.when.trim()) return 'Укажите, когда ребёнок занимался адаптивным катанием';
-      if (typeof a.details !== 'string' || !a.details.trim()) return 'Опишите подробности занятий адаптивным катанием';
-    }
+    if (a.hasExperience && !isFilled(a.when)) return 'Укажите даты, когда ребёнок проходил адаптивное катание';
+    if (a.hasExperience && String(a.when).length > 300) return 'Слишком длинный ответ «Даты»';
+    if (a.details !== undefined && a.details !== null && typeof a.details !== 'string') return 'Некорректные подробности';
+    if (typeof a.details === 'string' && a.details.length > 2000) return 'Слишком длинные подробности';
   }
   return null;
 };
+
+const isFilled = (v: unknown): boolean => typeof v === 'string' && v.trim().length > 0;
 
 /**
  * Поля, которые родитель может задавать сам. Всё остальное (parentId, trainers,
@@ -44,7 +56,7 @@ const validateChildPayload = (body: any, partial: boolean): string | null => {
 const EDITABLE_FIELDS = [
   'name', 'lastName', 'iin', 'dateOfBirth', 'photo', 'diagnosis', 'communicationMethod',
   'fears', 'triggers', 'interests', 'calmingActivities', 'sensoryProfile', 'behavioralNotes',
-  'goals', 'adaptiveSkating',
+  'goals', 'adaptiveSkating', 'skiExperience',
 ] as const;
 
 const pickEditable = (body: any): Record<string, unknown> => {
@@ -61,9 +73,13 @@ const sanitizeSkating = (a: any) =>
     ? {
         hasExperience: a.hasExperience,
         when: a.hasExperience ? String(a.when).trim() : undefined,
-        details: a.hasExperience ? String(a.details).trim() : undefined,
+        // Подробности необязательны
+        details: a.hasExperience && typeof a.details === 'string' && a.details.trim() ? a.details.trim() : undefined,
       }
     : undefined;
+
+const sanitizeSki = (s: any) =>
+  s ? { hasExperience: s.hasExperience, when: s.hasExperience ? String(s.when).trim() : undefined } : undefined;
 
 // GET /api/children
 export const getChildren = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -131,6 +147,7 @@ export const createChild = async (req: AuthRequest, res: Response): Promise<void
       ...body,
       lastName: body.lastName.trim(),
       adaptiveSkating: sanitizeSkating(body.adaptiveSkating),
+      skiExperience: sanitizeSki(body.skiExperience),
       parentId: req.user?.id,
       trainers: [],
     });
@@ -153,6 +170,7 @@ export const updateChild = async (req: AuthRequest, res: Response): Promise<void
     // список тренеров (их назначает администратор) или подсовывать Mongo-операторы
     const body = pickEditable(req.body) as any;
     if (body.adaptiveSkating !== undefined) body.adaptiveSkating = sanitizeSkating(body.adaptiveSkating);
+    if (body.skiExperience !== undefined) body.skiExperience = sanitizeSki(body.skiExperience);
     if (typeof body.lastName === 'string') body.lastName = body.lastName.trim();
     const child = await Child.findOneAndUpdate(
       { _id: req.params.id, parentId: req.user?.id },

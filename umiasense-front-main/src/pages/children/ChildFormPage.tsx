@@ -70,7 +70,7 @@ export default function ChildFormPage() {
         name: form.name.trim(),
         lastName: form.lastName.trim(),
         iin: form.iin,
-        adaptiveSkating: skatingPayload(skating),
+        ...skatingPayload(skating),
         consent,
         dateOfBirth: form.dateOfBirth,
         diagnosis: form.diagnosis.trim() || undefined,
@@ -186,7 +186,7 @@ export default function ChildFormPage() {
             </select>
           </div>
 
-          {/* Adaptive skating — обязательно */}
+          {/* Лыжи и адаптивное катание — обязательно */}
           <AdaptiveSkatingFields value={skating} onChange={setSkating} />
 
           {/* Согласие законного представителя (Закон РК «О персональных данных и их защите») */}

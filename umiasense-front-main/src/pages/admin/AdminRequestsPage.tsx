@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { enrollmentApi } from '../../api';
 import type { Assignment, EnrollmentRequest, RequestStatus, User } from '../../types';
 import {
-  REQUEST_STATUS, childFullName, formatDays, formatSlots, formatDateRu,
+  REQUEST_STATUS, childFullName, formatDays, formatSlots, formatDateRu, skiText, adaptiveText,
 } from '../../utils/enrollment';
 import AssignTrainerModal from '../../components/enrollment/AssignTrainerModal';
 import ReasonModal from '../../components/enrollment/ReasonModal';
@@ -118,12 +118,8 @@ export default function AdminRequestsPage() {
                       <b className="font-semibold">{formatDays(r.preferredDays)}</b>
                       {(r.preferredTimeFrom || r.preferredTimeTo) && <> · время {r.preferredTimeFrom || '…'}–{r.preferredTimeTo || '…'}</>}
                     </p>
-                    <p className="sm:col-span-2">
-                      <span className="text-gray-400">Адаптивное катание:</span>{' '}
-                      {c?.adaptiveSkating?.hasExperience
-                        ? <>занимался — <b className="font-medium">{c.adaptiveSkating.when}</b>. {c.adaptiveSkating.details}</>
-                        : c?.adaptiveSkating?.hasExperience === false ? 'ранее не занимался' : '—'}
-                    </p>
+                    <p className="sm:col-span-2"><span className="text-gray-400">Катался на лыжах / обучался:</span> {skiText(c)}</p>
+                    <p className="sm:col-span-2"><span className="text-gray-400">Адаптивное катание:</span> {adaptiveText(c)}</p>
                     {r.comment && <p className="sm:col-span-2"><span className="text-gray-400">Комментарий:</span> {r.comment}</p>}
                     {r.status === 'cancelled' && (
                       <p className="sm:col-span-2 text-gray-500">

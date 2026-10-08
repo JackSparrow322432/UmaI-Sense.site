@@ -5,7 +5,7 @@ import type { Child } from '../../../types';
 import AdaptiveSkatingFields, {
   emptySkating, validateSkating, skatingPayload, type SkatingForm,
 } from '../../../components/enrollment/AdaptiveSkatingFields';
-import { isValidIin, iinMatchesBirthDate } from '../../../utils/enrollment';
+import { isValidIin, iinMatchesBirthDate, isChildReadyForEnrollment } from '../../../utils/enrollment';
 
 const COMMUNICATION_OPTIONS = [
   'Вербальная речь', 'ААС-устройство', 'PECS карточки', 'Жестовый язык', 'Другое',
@@ -47,7 +47,7 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
     photo: child.photo || '',
   });
 
-  const [skating, setSkating] = useState<SkatingForm>(emptySkating(child.adaptiveSkating));
+  const [skating, setSkating] = useState<SkatingForm>(emptySkating(child));
   const set = (key: keyof typeof form, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,7 +74,7 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
       communicationMethod: child.communicationMethod || '',
       photo: child.photo || '',
     });
-    setSkating(emptySkating(child.adaptiveSkating));
+    setSkating(emptySkating(child));
     setEditing(true);
   };
 
@@ -90,7 +90,7 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
         name: form.name.trim(),
         lastName: form.lastName.trim(),
         iin: form.iin,
-        adaptiveSkating: skatingPayload(skating),
+        ...skatingPayload(skating),
         dateOfBirth: form.dateOfBirth,
         diagnosis: form.diagnosis.trim() || undefined,
         communicationMethod: form.communicationMethod || undefined,
@@ -188,9 +188,9 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
         )}
       </div>
 
-      {canEdit && (!child.lastName || !child.iin || typeof child.adaptiveSkating?.hasExperience !== 'boolean') && (
+      {canEdit && !isChildReadyForEnrollment(child) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
-          Заполните фамилию, ИИН и информацию об адаптивном катании — без них нельзя подать заявку на занятия.
+          Заполните фамилию, ИИН и ответы о катании на лыжах и адаптивном катании — без них нельзя подать заявку на занятия.
           <button onClick={startEdit} className="ml-1 font-semibold underline">Заполнить</button>
         </div>
       )}
@@ -200,21 +200,25 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
           <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">ИИН</p>
           <p className="text-sm text-gray-700 tracking-wider">{child.iin || <span className="text-gray-400 tracking-normal">Не указан</span>}</p>
         </div>
-        <div className="bg-gray-50 rounded-xl p-3">
-          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Адаптивное катание</p>
+        <div className="bg-gray-50 rounded-xl p-3 col-span-2">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Катался на лыжах или обучался</p>
           <p className="text-sm text-gray-700">
-            {child.adaptiveSkating?.hasExperience === true && 'Занимался ранее'}
-            {child.adaptiveSkating?.hasExperience === false && 'Ранее не занимался'}
-            {typeof child.adaptiveSkating?.hasExperience !== 'boolean' && <span className="text-gray-400">Не указано</span>}
+            {child.skiExperience?.hasExperience === true && <>Да — <span className="font-medium">{child.skiExperience.when}</span></>}
+            {child.skiExperience?.hasExperience === false && 'Нет'}
+            {typeof child.skiExperience?.hasExperience !== 'boolean' && <span className="text-gray-400">Не указано</span>}
           </p>
         </div>
-        {child.adaptiveSkating?.hasExperience && (
-          <div className="bg-gray-50 rounded-xl p-3 col-span-2">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Когда и подробности</p>
-            <p className="text-sm text-gray-700 font-medium">{child.adaptiveSkating.when}</p>
+        <div className="bg-gray-50 rounded-xl p-3 col-span-2">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Адаптивное катание</p>
+          <p className="text-sm text-gray-700">
+            {child.adaptiveSkating?.hasExperience === true && <>Да — <span className="font-medium">{child.adaptiveSkating.when}</span></>}
+            {child.adaptiveSkating?.hasExperience === false && 'Не проходил'}
+            {typeof child.adaptiveSkating?.hasExperience !== 'boolean' && <span className="text-gray-400">Не указано</span>}
+          </p>
+          {child.adaptiveSkating?.hasExperience && child.adaptiveSkating.details && (
             <p className="text-sm text-gray-600 whitespace-pre-line mt-1">{child.adaptiveSkating.details}</p>
-          </div>
-        )}
+          )}
+        </div>
         <div className="bg-gray-50 rounded-xl p-3">
           <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1">Диагноз</p>
           <p className="text-sm text-gray-700">{child.diagnosis || <span className="text-gray-400">Не указан</span>}</p>

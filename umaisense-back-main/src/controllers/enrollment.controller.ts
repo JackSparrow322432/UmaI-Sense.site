@@ -152,9 +152,13 @@ export const createRequest = async (req: AuthRequest, res: Response): Promise<vo
     if (!child) { res.status(404).json({ message: 'Ребёнок не найден' }); return; }
 
     // Для записи нужны полные данные ребёнка
-    if (!child.lastName || !isValidIin(child.iin) || typeof child.adaptiveSkating?.hasExperience !== 'boolean') {
+    if (
+      !child.lastName || !isValidIin(child.iin) ||
+      typeof child.adaptiveSkating?.hasExperience !== 'boolean' ||
+      typeof child.skiExperience?.hasExperience !== 'boolean'
+    ) {
       res.status(400).json({
-        message: 'Заполните в профиле ребёнка фамилию, ИИН и информацию об адаптивном катании',
+        message: 'Заполните в профиле ребёнка фамилию, ИИН и ответы о катании на лыжах и адаптивном катании',
         code: 'CHILD_INCOMPLETE',
       });
       return;
@@ -250,7 +254,7 @@ export const adminGetRequests = async (req: AuthRequest, res: Response): Promise
 
     const requests = await EnrollmentRequest.find(filter)
       .populate('parentId', 'name email photo')
-      .populate('childId', 'name lastName iin dateOfBirth photo diagnosis communicationMethod adaptiveSkating')
+      .populate('childId', 'name lastName iin dateOfBirth photo diagnosis communicationMethod adaptiveSkating skiExperience')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -542,7 +546,7 @@ export const adminCancelSession = async (req: AuthRequest, res: Response): Promi
 
 const trainerCard = async (assignmentId: Types.ObjectId) => {
   const a = await Assignment.findById(assignmentId)
-    .populate('childId', 'name lastName iin dateOfBirth photo diagnosis adaptiveSkating')
+    .populate('childId', 'name lastName iin dateOfBirth photo diagnosis adaptiveSkating skiExperience')
     .populate('parentId', 'name email')
     .select('-accessCode')
     .lean();

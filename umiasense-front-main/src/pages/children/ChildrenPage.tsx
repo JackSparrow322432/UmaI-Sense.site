@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { childrenApi, enrollmentApi } from '../../api';
 import type { Assignment, Child, User } from '../../types';
-import { childFullName, formatSlots, formatDateRu } from '../../utils/enrollment';
+import { childFullName, formatSlots, formatDateRu, skiText, adaptiveText } from '../../utils/enrollment';
 import { useAuthStore } from '../../store/authStore';
 
 const getAge = (dob: string) => {
@@ -131,12 +131,8 @@ function TrainerAssignments({ items }: { items: Assignment[] }) {
                     <p><span className="text-gray-400">Телефон:</span> {a.contactPhone || '—'}</p>
                     <p><span className="text-gray-400">Дни:</span> {formatSlots(a.slots)} ({a.durationMin} мин)</p>
                     <p><span className="text-gray-400">Период:</span> {formatDateRu(a.startDate)} – {formatDateRu(a.endDate)}</p>
-                    <p className="sm:col-span-2">
-                      <span className="text-gray-400">Адаптивное катание:</span>{' '}
-                      {c?.adaptiveSkating?.hasExperience
-                        ? `занимался (${c.adaptiveSkating.when}) — ${c.adaptiveSkating.details}`
-                        : c?.adaptiveSkating?.hasExperience === false ? 'ранее не занимался' : '—'}
-                    </p>
+                    <p className="sm:col-span-2"><span className="text-gray-400">Лыжи:</span> {skiText(c)}</p>
+                    <p className="sm:col-span-2"><span className="text-gray-400">Адаптивное катание:</span> {adaptiveText(c)}</p>
                   </div>
                 </div>
               );

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { childrenApi, enrollmentApi } from '../../api';
 import type { Child, Weekday } from '../../types';
-import { WEEKDAYS, childFullName, isChildReadyForEnrollment, formatDateRu } from '../../utils/enrollment';
+import { WEEKDAYS, childFullName, isChildReadyForEnrollment, formatDateRu, skiText, adaptiveText } from '../../utils/enrollment';
 
 const inputClass =
   'w-full border border-gray-200 bg-gray-50 focus:bg-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#E07628]/20 focus:border-[#E07628] transition placeholder-gray-400 text-gray-800';
@@ -113,17 +113,13 @@ export default function RequestFormPage() {
                 <p><span className="text-gray-400">ИИН:</span> <span className="tracking-wider">{child.iin}</span></p>
                 <p><span className="text-gray-400">Дата рождения:</span> {formatDateRu(child.dateOfBirth)}</p>
                 {child.diagnosis && <p><span className="text-gray-400">Диагноз:</span> {child.diagnosis}</p>}
-                <p>
-                  <span className="text-gray-400">Адаптивное катание:</span>{' '}
-                  {child.adaptiveSkating?.hasExperience
-                    ? `занимался (${child.adaptiveSkating.when})`
-                    : 'ранее не занимался'}
-                </p>
+                <p><span className="text-gray-400">Катался на лыжах / обучался:</span> {skiText(child)}</p>
+                <p><span className="text-gray-400">Адаптивное катание:</span> {adaptiveText(child, false)}</p>
                 <Link to={`/children/${child._id}/profile`} className="inline-block text-xs text-[#E07628] font-semibold mt-1">Изменить данные</Link>
               </div>
             ) : (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-                В профиле не хватает фамилии, ИИН или информации об адаптивном катании.{' '}
+                В профиле не хватает фамилии, ИИН или ответов о катании на лыжах и адаптивном катании.{' '}
                 <Link to={`/children/${child._id}/profile`} className="font-semibold underline">Заполнить профиль</Link>
               </div>
             )

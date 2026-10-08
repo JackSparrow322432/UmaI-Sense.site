@@ -51,7 +51,23 @@ export const isValidIin = (value: string): boolean => {
 
 /** Данные ребёнка, без которых нельзя подать заявку */
 export const isChildReadyForEnrollment = (c: Child) =>
-  !!c.lastName && !!c.iin && isValidIin(c.iin) && typeof c.adaptiveSkating?.hasExperience === 'boolean';
+  !!c.lastName && !!c.iin && isValidIin(c.iin) &&
+  typeof c.adaptiveSkating?.hasExperience === 'boolean' &&
+  typeof c.skiExperience?.hasExperience === 'boolean';
+
+type SkatingInfo = Partial<Pick<Child, 'adaptiveSkating' | 'skiExperience'>> | null | undefined;
+
+/** «Катался на лыжах»: да — когда / нет / не указано */
+export const skiText = (c: SkatingInfo): string =>
+  c?.skiExperience?.hasExperience === true
+    ? `да — ${c.skiExperience.when || 'когда, не указано'}`
+    : c?.skiExperience?.hasExperience === false ? 'нет' : 'не указано';
+
+/** «Адаптивное катание»: да — даты (и подробности) / нет / не указано */
+export const adaptiveText = (c: SkatingInfo, withDetails = true): string =>
+  c?.adaptiveSkating?.hasExperience === true
+    ? `да — ${c.adaptiveSkating.when || 'даты не указаны'}${withDetails && c.adaptiveSkating.details ? `. ${c.adaptiveSkating.details}` : ''}`
+    : c?.adaptiveSkating?.hasExperience === false ? 'нет' : 'не указано';
 
 export const REQUEST_STATUS: Record<string, { label: string; color: string; bg: string }> = {
   pending:   { label: 'На рассмотрении', color: '#B45309', bg: '#FEF3C7' },

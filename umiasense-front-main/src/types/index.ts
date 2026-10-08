@@ -14,10 +14,17 @@ export interface User {
   updatedAt: string;
 }
 
+/** Проходил ли адаптивное катание: when — даты, details — подробности (необязательно) */
 export interface AdaptiveSkating {
   hasExperience: boolean;
   when?: string;
   details?: string;
+}
+
+/** Катался ли когда-либо на лыжах или обучался, и когда именно */
+export interface SkiExperience {
+  hasExperience: boolean;
+  when?: string;
 }
 
 export interface Child {
@@ -44,6 +51,7 @@ export interface Child {
   behavioralNotes?: string;
   goals?: Array<{ title: string; description?: string }>;
   adaptiveSkating?: AdaptiveSkating;
+  skiExperience?: SkiExperience;
   trainers: User[];
   /** Тренеры, записанные администратором (только в GET /children/:id) — родитель не может их откреплять */
   managedTrainerIds?: string[];
@@ -229,7 +237,7 @@ export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export interface ScheduleSlot { weekday: Weekday; startTime: string }
 
 type ChildBrief = Pick<Child, '_id' | 'name' | 'lastName' | 'photo' | 'dateOfBirth'> &
-  Partial<Pick<Child, 'iin' | 'diagnosis' | 'communicationMethod' | 'adaptiveSkating'>>;
+  Partial<Pick<Child, 'iin' | 'diagnosis' | 'communicationMethod' | 'adaptiveSkating' | 'skiExperience'>>;
 type UserBrief = Pick<User, '_id' | 'name'> & Partial<Pick<User, 'email' | 'photo'>>;
 
 export interface Assignment {

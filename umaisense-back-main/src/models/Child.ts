@@ -29,7 +29,12 @@ const childSchema = new Schema<IChild>(
         description: { type: String },
       },
     ],
-    // Был ли ребёнок ранее на адаптивном катании (обязательно для новых профилей)
+    // Катался ли ребёнок когда-либо на лыжах или обучался, и когда (обязательно для записи)
+    skiExperience: {
+      hasExperience: { type: Boolean },
+      when: { type: String, trim: true },
+    },
+    // Проходил ли адаптивное катание: when — даты занятий, details — подробности (необязательно)
     adaptiveSkating: {
       hasExperience: { type: Boolean },
       when: { type: String, trim: true },
