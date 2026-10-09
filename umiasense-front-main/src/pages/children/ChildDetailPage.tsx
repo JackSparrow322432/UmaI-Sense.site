@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { childrenApi, emotionsApi, activitiesApi, diaryApi } from '../../api';
 import type { Child, Emotion, Activity, DiaryEntry, MoodType, ActivityCategory, DiaryTag } from '../../types';
 import { useAuthStore } from '../../store/authStore';
+import { saveBlobResponse } from '../../utils/downloadBlob';
 import AddEmotionModal from '../../components/modals/AddEmotionModal';
 import AddDiaryModal from '../../components/modals/AddDiaryModal';
 import AddActivityModal from '../../components/modals/AddActivityModal';
@@ -85,6 +86,19 @@ export default function ChildDetailPage() {
   const [modal, setModal] = useState<'emotion' | 'diary' | 'activity' | null>(null);
 
   const isParent = user?.role === 'parent';
+  const [downloadingDossier, setDownloadingDossier] = useState(false);
+  const downloadDossier = async () => {
+    if (!childId) return;
+    setDownloadingDossier(true);
+    try {
+      saveBlobResponse(await childrenApi.dossier(childId), 'UmaiSense_dossier.pdf');
+      toast.success('Досье скачано');
+    } catch {
+      toast.error('Не удалось сформировать досье');
+    } finally {
+      setDownloadingDossier(false);
+    }
+  };
 
   const fetchAll = async () => {
     if (!childId) return;
@@ -160,6 +174,7 @@ export default function ChildDetailPage() {
     { label: 'Активности', to: `/children/${childId}/activities`,       color: '#E07628', bg: '#FFF3EA', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
     { label: 'Развитие',   to: `/children/${childId}/milestones`,       color: '#A78BFA', bg: '#F5F3FF', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
     ...(isParent ? [{ label: 'ИИ Советы', to: `/children/${childId}/recommendations`, color: '#F59B56', bg: '#FFF7ED', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> }] : []),
+    ...(isParent ? [{ label: 'ИИ-скрининг', to: `/children/${childId}/screening`, color: '#0EA5E9', bg: '#F0F9FF', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M8 11h6M11 8v6"/></svg> }] : []),
     { label: 'Профиль',    to: `/children/${childId}/profile`,          color: '#9CA3AF', bg: '#F3F4F6', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
   ];
 
@@ -292,6 +307,26 @@ export default function ChildDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Досье ребёнка — PDF со всей информацией и расшифровками документов */}
+      {isParent && (
+        <button
+          type="button"
+          onClick={downloadDossier}
+          disabled={downloadingDossier}
+          className="w-full flex items-center gap-3 bg-white rounded-xl border border-gray-200 p-4 hover:border-[#E07628]/40 transition text-left disabled:opacity-60"
+        >
+          <span className="w-10 h-10 rounded-lg bg-[#FFF3EA] text-[#E07628] flex items-center justify-center flex-shrink-0">
+            {downloadingDossier
+              ? <span className="w-4 h-4 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-gray-900">{downloadingDossier ? 'Формируем досье…' : 'Скачать досье ребёнка (PDF)'}</span>
+            <span className="block text-xs text-gray-400 mt-0.5">Вся информация о ребёнке, наблюдения, ИИ-скрининг и расшифровки документов</span>
+          </span>
+        </button>
+      )}
 
       {/* Module grid */}
       <div>

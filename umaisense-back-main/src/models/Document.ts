@@ -18,9 +18,14 @@ const documentSchema = new Schema<IDocument>(
     // Срок незавершённой загрузки: после него запись и файл удаляет sweepAbandonedUploads()
     // (не TTL-индекс: он удалил бы только запись, а файл остался бы в хранилище без владельца)
     uploadExpiresAt: { type: Date, index: true },
-    // ИИ-разбор документов отключён: медицинские документы не передаются за рубеж
+    // ИИ-расшифровка документа (по запросу родителя, при согласии documents_ai) — utils/documentAi.ts
     aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], default: 'disabled' },
+    // Краткое объяснение простыми словами (и старые разъяснения до появления aiResult)
     aiExplanation: { type: String },
+    // Структурированная расшифровка: тип документа, главное, термины, рекомендации, вопросы врачу, для тренера
+    aiResult: { type: Schema.Types.Mixed },
+    aiAt: { type: Date },
+    aiError: { type: String },
   },
   { timestamps: true }
 );

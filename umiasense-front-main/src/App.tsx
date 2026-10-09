@@ -48,6 +48,8 @@ import SchedulePage from './pages/schedule/SchedulePage';
 import RequestsPage from './pages/requests/RequestsPage';
 import RequestFormPage from './pages/requests/RequestFormPage';
 import PrivacyPage from './pages/legal/PrivacyPage';
+import ScreeningPage from './pages/children/ScreeningPage';
+import AgreementPage from './pages/legal/AgreementPage';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const token = useAuthStore((s) => s.token);
@@ -110,6 +112,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/agreement" element={<AgreementPage />} />
 
         {/* Protected */}
         <Route
@@ -132,6 +135,7 @@ export default function App() {
           <Route path="children/:id/milestones" element={<MilestonesPage />} />
           <Route path="children/:id/recommendations" element={<RecommendationsPage />} />
           <Route path="children/:id/documents" element={<DocumentsPage />} />
+          <Route path="children/:id/screening" element={<ScreeningPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="articles" element={<ArticlesPage />} />

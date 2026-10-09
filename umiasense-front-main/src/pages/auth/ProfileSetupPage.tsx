@@ -6,11 +6,14 @@ import { useAuthStore } from '../../store/authStore';
 import AuthLayout from '../../components/auth/AuthLayout';
 import PasswordInput from '../../components/common/PasswordInput';
 import { UserIcon } from '../../components/auth/icons';
+import ConsentCheckbox from '../../components/legal/ConsentCheckbox';
 
 export default function ProfileSetupPage() {
   const { state } = useLocation() as { state: { email: string; role: string; registrationToken?: string } | null };
   const [name, setName] = useState('');
   const [consent, setConsent] = useState(false);
+  const [consentThirdParty, setConsentThirdParty] = useState(false);
+  const [consentCrossBorder, setConsentCrossBorder] = useState(false);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,10 +29,11 @@ export default function ProfileSetupPage() {
     if (name.trim().length < 2) { toast.error('Имя слишком короткое'); return; }
     if (password.length < 8) { toast.error('Пароль минимум 8 символов'); return; }
     if (!consent) { toast.error('Нужно согласие на обработку персональных данных'); return; }
+    if (!consentThirdParty) { toast.error('Нужно согласие на передачу данных третьим лицам'); return; }
     if (password !== confirm) { toast.error('Пароли не совпадают'); return; }
     setLoading(true);
     try {
-      const { data } = await authApi.completeRegistration({ email: state.email, name: name.trim(), password, role: state.role, consent, registrationToken: state.registrationToken ?? '' });
+      const { data } = await authApi.completeRegistration({ email: state.email, name: name.trim(), password, role: state.role, consent, consentThirdParty, consentCrossBorder, registrationToken: state.registrationToken ?? '' });
       setAuth(data.token, data.user);
       toast.success('Добро пожаловать!');
       navigate('/children');
@@ -67,17 +71,27 @@ export default function ProfileSetupPage() {
           {mismatch && <p className="text-xs text-red-400 mt-1">Пароли не совпадают</p>}
         </div>
 
-        <label className="flex items-start gap-2.5 text-xs text-gray-600 leading-relaxed cursor-pointer">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[#E07628]" />
-          <span>
-            Я даю согласие на сбор и обработку моих персональных данных в соответствии с{' '}
-            <Link to="/privacy" target="_blank" className="text-[#E07628] underline">Политикой конфиденциальности</Link>{' '}
-            и Законом РК «О персональных данных и их защите».
-          </span>
-        </label>
+        {/* Отдельные согласия — не одной галочкой на всё (каждое фиксируется на сервере с версией текста) */}
+        <div className="space-y-2.5">
+          <ConsentCheckbox checked={consent} onChange={setConsent} required link={{ to: '/privacy', label: 'Политикой конфиденциальности' }}>
+            Я принимаю <Link to="/agreement" target="_blank" className="text-[#E07628] underline">Пользовательское соглашение</Link> и
+            даю согласие на сбор и обработку моих персональных данных в соответствии с Законом РК «О персональных
+            данных и их защите» и
+          </ConsentCheckbox>
+          <ConsentCheckbox checked={consentThirdParty} onChange={setConsentThirdParty} required link={{ to: '/privacy#third-parties', label: '(перечень получателей)' }}>
+            Я даю согласие на передачу моих персональных данных третьим лицам, указанным в Политике: тренерам,
+            провайдеру хранения данных, почтовому сервису, государственным органам по закону
+          </ConsentCheckbox>
+          {state.role === 'parent' && (
+            <ConsentCheckbox checked={consentCrossBorder} onChange={setConsentCrossBorder} link={{ to: '/privacy#cross-border', label: '(подробнее)' }}>
+              Согласен(на) на трансграничную передачу обезличенных сведений о развитии ребёнка (без имени, ИИН,
+              даты рождения и документов) внешнему сервису ИИ для персональных рекомендаций
+            </ConsentCheckbox>
+          )}
+        </div>
 
         <button
-          type="submit" disabled={loading || mismatch || password.length < 8 || !consent}
+          type="submit" disabled={loading || mismatch || password.length < 8 || !consent || !consentThirdParty}
           className="w-full bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl py-3 font-semibold text-sm transition disabled:opacity-50 shadow-sm shadow-[#E07628]/30 mt-2"
         >
           {loading ? 'Создание аккаунта...' : 'Завершить регистрацию'}

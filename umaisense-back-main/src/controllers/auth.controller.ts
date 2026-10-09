@@ -31,12 +31,21 @@ const sameHash = (a: string, b: string) =>
 const issueOtp = async (email: string, purpose: 'register' | 'reset'): Promise<string> => {
   const code = newCode();
   await OtpCode.deleteMany({ email });
-  await OtpCode.create({ email, code, purpose, expiresAt: new Date(Date.now() + OTP_TTL_MS) });
+  // В базе храним только хеш кода: утечка базы/бэкапа не раскрывает действующие коды
+  await OtpCode.create({ email, code: sha256(code), purpose, expiresAt: new Date(Date.now() + OTP_TTL_MS) });
   return code;
 };
 
+// Коды показываются в ответе/консоли ТОЛЬКО при явном NODE_ENV=development.
+// Раньше условие было «не production»: если на сервере забыли NODE_ENV, любой получал
+// код подтверждения прямо в ответе API и мог зарегистрироваться на чужой email.
+const isDevMode = () => process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+
 const deliverOtp = async (email: string, code: string, label: string) => {
-  if (process.env.NODE_ENV === 'production') {
+  if (!isDevMode()) {
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      throw new Error('SMTP_USER / SMTP_PASS не заданы — письмо с кодом отправить нельзя (проверьте переменные окружения этого окружения Vercel)');
+    }
     await sendOtpEmail(email, code);
   } else {
     console.log(`[DEV] ${label} OTP for ${email}: ${code}`);
@@ -49,7 +58,7 @@ const deliverOtp = async (email: string, code: string, label: string) => {
 const checkOtp = async (email: string, code: string, purpose: 'register' | 'reset') => {
   const otp = await OtpCode.findOne({ email, purpose });
   if (!otp || otp.expiresAt < new Date()) return { error: 'Неверный или истёкший код' } as const;
-  if (otp.code !== code) {
+  if (!sameHash(otp.code, sha256(code))) {
     otp.attempts += 1;
     if (otp.attempts >= MAX_OTP_ATTEMPTS) {
       await otp.deleteOne();
@@ -91,7 +100,7 @@ export const sendOtp = async (req: AuthRequest, res: Response): Promise<void> =>
 
     res.json({
       message: 'Код отправлен на почту',
-      ...(process.env.NODE_ENV !== 'production' && { dev_code: code }),
+      ...(isDevMode() && { dev_code: code }),
     });
   } catch (err) {
     console.error('sendOtp error:', err);
@@ -128,9 +137,11 @@ export const resendOtp = async (req: AuthRequest, res: Response): Promise<void> 
 
     res.json({
       message: 'Код отправлен повторно',
-      ...(process.env.NODE_ENV !== 'production' && { dev_code: code }),
+      ...(isDevMode() && { dev_code: code }),
     });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:resendOtp]', err);
     res.status(500).json({ message: 'Ошибка отправки кода' });
   }
 };
@@ -159,7 +170,9 @@ export const verifyOtp = async (req: AuthRequest, res: Response): Promise<void> 
     await result.otp.save();
 
     res.json({ verified: true, email, registrationToken });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:verifyOtp]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -191,6 +204,11 @@ export const completeRegistration = async (req: AuthRequest, res: Response): Pro
     }
     if (req.body?.consent !== true) {
       res.status(400).json({ message: 'Необходимо согласие на сбор и обработку персональных данных' });
+      return;
+    }
+    // Отдельное согласие на передачу третьим лицам (перечень — в Политике, раздел «Передача третьим лицам»)
+    if (req.body?.consentThirdParty !== true) {
+      res.status(400).json({ message: 'Необходимо согласие на передачу данных третьим лицам, указанным в Политике' });
       return;
     }
 
@@ -225,13 +243,20 @@ export const completeRegistration = async (req: AuthRequest, res: Response): Pro
     }
     await OtpCode.deleteMany({ email });
     await recordConsent(req, { userId: user._id, type: 'account' });
+    await recordConsent(req, { userId: user._id, type: 'third_party_transfer' });
+    // Необязательное: трансграничная передача обезличенных данных внешнему ИИ
+    if (req.body?.consentCrossBorder === true) {
+      await recordConsent(req, { userId: user._id, type: 'cross_border' });
+    }
 
     const token = generateToken(user._id.toString(), user.role);
     const userObj = user.toObject();
     delete userObj.password;
 
     res.status(201).json({ token, user: userObj });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:completeRegistration]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -264,7 +289,9 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
     delete userObj.password;
 
     res.json({ token, user: userObj });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:login]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -290,9 +317,11 @@ export const forgotPassword = async (req: AuthRequest, res: Response): Promise<v
 
     res.json({
       message: 'Если аккаунт существует, код отправлен на почту',
-      ...(process.env.NODE_ENV !== 'production' && { dev_code: code }),
+      ...(isDevMode() && { dev_code: code }),
     });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:forgotPassword]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -322,10 +351,12 @@ export const resetPassword = async (req: AuthRequest, res: Response): Promise<vo
     await OtpCode.deleteMany({ email });
 
     const hashed = await bcrypt.hash(newPassword, 10);
-    await User.findOneAndUpdate({ email }, { password: hashed });
+    await User.findOneAndUpdate({ email }, { password: hashed, passwordChangedAt: new Date() });
 
     res.json({ message: 'Пароль успешно изменён' });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:resetPassword]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -336,7 +367,9 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
     const user = await User.findById(req.user?.id).select('-__v');
     if (!user) { res.status(404).json({ message: 'Пользователь не найден' }); return; }
     res.json(user);
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:getMe]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -345,7 +378,9 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
 export const updateProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const name = str(req.body?.name);
-    const photo = typeof req.body?.photo === 'string' ? req.body.photo : undefined;
+    // Фото — только ссылка, выданная нашей загрузкой (https или локальный /uploads), без javascript:/data:
+    const rawPhoto = typeof req.body?.photo === 'string' ? req.body.photo.trim() : undefined;
+    const photo = rawPhoto && /^(https:\/\/|\/uploads\/)/.test(rawPhoto) ? rawPhoto : rawPhoto === '' ? '' : undefined;
     if (!name || name.length < 2) {
       res.status(400).json({ message: 'Имя слишком короткое' });
       return;
@@ -356,7 +391,9 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
       { new: true }
     ).select('-__v');
     res.json(user);
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:updateProfile]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
@@ -372,7 +409,9 @@ export const deleteAccount = async (req: AuthRequest, res: Response): Promise<vo
     await User.findByIdAndDelete(req.user?.id);
     await cancelEnrollmentForDeletedUser(req.user?.id, req.user?.role);
     res.json({ message: 'Аккаунт удалён' });
-  } catch {
+  } catch (err) {
+    // Пишем причину в лог: раньше 500 приходил без объяснения (например, не задан JWT_SECRET или SMTP)
+    console.error('[auth:deleteAccount]', err);
     res.status(500).json({ message: 'Ошибка сервера' });
   }
 };

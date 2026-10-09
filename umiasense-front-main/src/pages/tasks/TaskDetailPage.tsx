@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { tasksApi, childrenApi } from '../../api';
 import { useAuthStore } from '../../store/authStore';
 import type { Task, TaskRating, Child } from '../../types';
+import FileDropzone from '../../components/common/FileDropzone';
+import { UPLOAD_RULES, acceptFor, validateFile } from '../../utils/uploadRules';
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -93,19 +95,16 @@ function ChildRatingRow({
     }
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleUpload = async (file: File) => {
     setUploading(true);
     try {
       const { data } = await tasksApi.uploadSubmission(taskId, child._id, file);
       onSaved(data);
       toast.success('Выполненное задание загружено');
-    } catch {
-      toast.error('Не удалось загрузить файл');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Не удалось загрузить файл');
     } finally {
       setUploading(false);
-      e.target.value = '';
     }
   };
 
@@ -134,24 +133,24 @@ function ChildRatingRow({
             {isParent && (
               <label className="text-[11px] font-semibold text-[#E07628] hover:underline cursor-pointer flex-shrink-0">
                 {uploading ? '...' : 'Заменить'}
-                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleUpload} disabled={uploading} />
+                <input type="file" accept={acceptFor(UPLOAD_RULES.submission)} className="hidden" disabled={uploading}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]; e.target.value = '';
+                    if (!f) return;
+                    const problem = await validateFile(UPLOAD_RULES.submission, f);
+                    if (problem) { toast.error(problem); return; }
+                    void handleUpload(f);
+                  }} />
               </label>
             )}
           </div>
         ) : isParent ? (
-          <label className="flex items-center justify-center gap-2 w-full h-16 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-[#E07628] hover:bg-gray-50 transition">
-            {uploading ? (
-              <div className="w-5 h-5 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <span className="text-xs text-gray-400">Загрузить выполненное задание</span>
-              </>
-            )}
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleUpload} disabled={uploading} />
-          </label>
+          <FileDropzone
+            rule={UPLOAD_RULES.submission}
+            title="Загрузить выполненное задание"
+            uploading={uploading}
+            onFile={handleUpload}
+          />
         ) : (
           <p className="text-xs text-gray-300">Домашнее задание ещё не загружено</p>
         )}

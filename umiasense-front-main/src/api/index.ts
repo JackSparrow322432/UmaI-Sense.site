@@ -8,6 +8,7 @@ import type {
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
   Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry,
   EnrollmentRequest, Assignment, Session, ScheduleSlot, Weekday, RequestStatus,
+  ConsentStatus, ConsentType, Screening, ScreeningStatus, DocumentAiResult, DocumentAiStatus,
 } from '../types';
 
 export const authApi = {
@@ -15,7 +16,7 @@ export const authApi = {
   resendOtp: (email: string) => api.post('/auth/resend-otp', { email }),
   verifyOtp: (email: string, code: string) =>
     api.post<{ verified: boolean; email: string; registrationToken: string }>('/auth/verify-otp', { email, code }),
-  completeRegistration: (data: { email: string; name: string; password: string; role: string; consent: boolean; registrationToken: string }) =>
+  completeRegistration: (data: { email: string; name: string; password: string; role: string; consent: boolean; consentThirdParty: boolean; consentCrossBorder: boolean; registrationToken: string }) =>
     api.post<{ token: string; user: User }>('/auth/complete-registration', data),
   login: (email: string, password: string) =>
     api.post<{ token: string; user: User }>('/auth/login', { email, password }),
@@ -28,19 +29,22 @@ export const authApi = {
 };
 
 export const uploadApi = {
-  image: (file: File) => {
+  // purpose определяет требования к разрешению на сервере (см. utils/uploadRules.ts)
+  image: (file: File, purpose: 'avatar' | 'cover' | 'submission' = 'avatar') => {
     const formData = new FormData();
     formData.append('image', file);
-    return api.post<{ url: string }>('/upload/image', formData, {
+    return api.post<{ url: string }>(`/upload/image?purpose=${purpose}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
 };
 
 export const childrenApi = {
+  // PDF-досье ребёнка для родителя
+  dossier: (childId: string) => api.get<Blob>(`/children/${childId}/report.pdf`, { responseType: 'blob', timeout: 60_000 }),
   getAll: () => api.get<Child[]>('/children'),
   getOne: (id: string) => api.get<Child>(`/children/${id}`),
-  create: (data: Partial<Child> & { consent: boolean }) => api.post<Child>('/children', data),
+  create: (data: Partial<Child> & { consent: boolean; consentThirdParty: boolean }) => api.post<Child>('/children', data),
   update: (id: string, data: Partial<Child>) => api.put<Child>(`/children/${id}`, data),
   delete: (id: string) => api.delete(`/children/${id}`),
   removeTrainer: (childId: string, trainerId: string) =>
@@ -114,6 +118,9 @@ export const adminApi = {
     diary: DiaryEntry[];
     stats: { totalEmotions: number; totalActivities: number; totalDiary: number };
   }>(`/admin/children/${childId}`),
+  // PDF-отчёт по профилю ребёнка (скачивание файлом)
+  getChildReport: (childId: string) =>
+    api.get<Blob>(`/admin/children/${childId}/report.pdf`, { responseType: 'blob', timeout: 60_000 }),
   getChildAudit: (childId: string) =>
     api.get<(AccessLogEntry & { ip?: string; userId?: { _id: string; name: string; email?: string; role: string } | null })[]>(
       `/admin/children/${childId}/audit`
@@ -135,6 +142,10 @@ export const documentsApi = {
     }),
   delete: (childId: string, documentId: string) =>
     api.delete(`/documents/${childId}/${documentId}`),
+  // ИИ-расшифровка документа (только родитель; нужен consent documents_ai)
+  aiStatus: (childId: string) => api.get<DocumentAiStatus>(`/documents/${childId}/ai/status`),
+  explain: (childId: string, documentId: string) =>
+    api.post<{ result: DocumentAiResult; document: DocumentItem }>(`/documents/${childId}/${documentId}/explain`, {}, { timeout: 90_000 }),
 };
 
 export const tasksApi = {
@@ -193,4 +204,20 @@ export const enrollmentApi = {
   // Календарь
   getSessions: (from: string, to: string, filters?: { trainerId?: string; childId?: string }) =>
     api.get<Session[]>('/enrollment/sessions', { params: { from, to, ...filters } }),
+};
+
+// Согласия: просмотр, подтверждение новой редакции политики, отзыв необязательных
+export const consentsApi = {
+  get: () => api.get<ConsentStatus>('/consents'),
+  grant: (types: ConsentType[], childId?: string) => api.post('/consents', { types, childId }),
+  withdraw: (type: ConsentType) => api.post('/consents/withdraw', { type }),
+};
+
+// ИИ-скрининг ребёнка (родитель или администратор)
+export const screeningApi = {
+  status: (childId: string) => api.get<ScreeningStatus>(`/children/${childId}/screening/status`),
+  list: (childId: string) => api.get<Screening[]>(`/children/${childId}/screening`),
+  get: (childId: string, screeningId: string) => api.get<Screening>(`/children/${childId}/screening/${screeningId}`),
+  // ИИ отвечает до минуты — увеличенный таймаут
+  run: (childId: string) => api.post<Screening>(`/children/${childId}/screening`, {}, { timeout: 120_000 }),
 };

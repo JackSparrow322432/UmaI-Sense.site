@@ -8,8 +8,10 @@ import {
   deleteChild,
   removeTrainer,
   getAccessLog,
+  downloadChildDossier,
 } from '../controllers/children.controller';
 import { protect, parentOnly } from '../middleware/auth.middleware';
+import { getScreeningStatus, runScreening, listScreenings, getScreening } from '../controllers/screening.controller';
 
 const router = Router();
 
@@ -25,10 +27,18 @@ const checkObjectId = (req: Request, res: Response, next: NextFunction, value: s
 };
 router.param('id', checkObjectId);
 router.param('trainerId', checkObjectId);
+router.param('screeningId', checkObjectId);
 
 router.get('/', getChildren);
 router.get('/:id', getChild);
 router.get('/:id/access-log', parentOnly, getAccessLog);
+router.get('/:id/report.pdf', parentOnly, downloadChildDossier);
+
+// ИИ-скрининг: родитель ребёнка или администратор (проверка внутри контроллера)
+router.get('/:id/screening/status', getScreeningStatus);
+router.get('/:id/screening', listScreenings);
+router.post('/:id/screening', runScreening);
+router.get('/:id/screening/:screeningId', getScreening);
 router.post('/', parentOnly, createChild);
 router.put('/:id', parentOnly, updateChild);
 router.delete('/:id', parentOnly, deleteChild);

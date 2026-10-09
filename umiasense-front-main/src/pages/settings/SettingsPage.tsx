@@ -1,8 +1,11 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { authApi, uploadApi } from '../../api';
 import { useAuthStore } from '../../store/authStore';
+import FileDropzone from '../../components/common/FileDropzone';
+import { UPLOAD_RULES } from '../../utils/uploadRules';
+import MyConsents from '../../components/legal/MyConsents';
 
 export default function SettingsPage() {
   const { user, setUser, clearAuth } = useAuthStore();
@@ -15,22 +18,16 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount,   setDeletingAccount]   = useState(false);
 
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const handlePhotoClick = () => fileRef.current?.click();
-
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handlePhotoChange = async (file: File) => {
     setUploadingPhoto(true);
     try {
-      const { data } = await uploadApi.image(file);
+      const { data } = await uploadApi.image(file, 'avatar');
       setPhoto(data.url);
-    } catch {
-      toast.error('Ошибка загрузки фото');
+      toast.success('Фото загружено — не забудьте сохранить профиль');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Ошибка загрузки фото');
     } finally {
       setUploadingPhoto(false);
-      e.target.value = '';
     }
   };
 
@@ -89,46 +86,19 @@ export default function SettingsPage() {
         </div>
         <div className="p-5 space-y-4">
 
-          {/* Avatar */}
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handlePhotoClick}
-              disabled={uploadingPhoto}
-              className="relative flex-shrink-0 group"
-              style={{ width: 64, height: 64 }}
-            >
-              <div className="w-full h-full rounded-xl bg-gray-100 flex items-center justify-center text-xl font-semibold text-gray-600 overflow-hidden border border-gray-200 group-hover:border-gray-300 transition-colors">
-                {uploadingPhoto ? (
-                  <div className="w-4 h-4 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
-                ) : photo ? (
-                  <img src={photo} className="w-full h-full object-cover" alt="" />
-                ) : (
-                  (user?.name?.[0] ?? '?').toUpperCase()
-                )}
-              </div>
-              {!uploadingPhoto && (
-                <div className="absolute inset-0 rounded-xl bg-black/25 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                    <circle cx="12" cy="13" r="4"/>
-                  </svg>
-                </div>
-              )}
-            </button>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-800">{user?.name || 'Без имени'}</p>
-              <p className="text-xs text-gray-400 mt-0.5 capitalize">{user?.role === 'parent' ? 'Родитель' : 'Тренер'}</p>
-              <button
-                onClick={handlePhotoClick}
-                disabled={uploadingPhoto}
-                className="text-xs text-[#E07628] font-medium mt-1.5 hover:text-[#c96a21] transition-colors disabled:opacity-50"
-              >
-                {uploadingPhoto ? 'Загрузка...' : 'Изменить фото'}
-              </button>
-            </div>
+          {/* Avatar — рамка загрузки с подсказкой о форматах и разрешении */}
+          <div>
+            <p className="text-sm font-medium text-gray-800">{user?.name || 'Без имени'}</p>
+            <p className="text-xs text-gray-400 mt-0.5 mb-3">{user?.role === 'parent' ? 'Родитель' : user?.role === 'admin' ? 'Администратор' : 'Тренер'}</p>
+            <FileDropzone
+              rule={UPLOAD_RULES.avatar}
+              variant="avatar"
+              title={photo ? 'Изменить фото профиля' : 'Загрузить фото профиля'}
+              preview={photo}
+              uploading={uploadingPhoto}
+              onFile={handlePhotoChange}
+            />
           </div>
-
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhotoChange} />
 
           {/* Name */}
           <div>
@@ -154,6 +124,17 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Account actions ─────────────────────────────────────────────────── */}
+      {/* Мои согласия на обработку персональных данных */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <p className="text-sm font-medium text-gray-900">Мои согласия</p>
+          <p className="text-xs text-gray-400 mt-0.5">Какие согласия вы дали, когда, и на какой редакции политики</p>
+        </div>
+        <div className="p-5">
+          <MyConsents />
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
 
         {/* Logout */}

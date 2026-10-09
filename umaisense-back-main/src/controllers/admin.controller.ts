@@ -7,6 +7,7 @@ import Activity from '../models/Activity';
 import DiaryEntry from '../models/DiaryEntry';
 import AuditLog from '../models/AuditLog';
 import { logAccess } from '../utils/audit';
+import { buildChildReportPdf, ChildNotFoundError } from '../utils/childReport';
 
 // GET /api/admin/users — все пользователи, включая администраторов
 export const getUsers = async (_req: AuthRequest, res: Response): Promise<void> => {
@@ -140,5 +141,23 @@ export const setAdminRole = async (req: AuthRequest, res: Response): Promise<voi
     res.json(user);
   } catch {
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /api/admin/children/:childId/report.pdf — PDF-отчёт по профилю ребёнка
+export const downloadChildReport = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const admin = await User.findById(req.user?.id).select('name email').lean();
+    const { buffer, fileName } = await buildChildReportPdf(String(req.params['childId']), { name: admin?.name, email: admin?.email });
+    await logAccess(req, { action: 'report.download', childId: String(req.params['childId']) });
+    res.setHeader('Content-Type', 'application/pdf');
+    // Имя файла с кириллицей — по RFC 5987, плюс ASCII-запасной вариант для старых браузеров
+    res.setHeader('Content-Disposition', `attachment; filename="UmaiSense_report.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (err) {
+    if (err instanceof ChildNotFoundError) { res.status(404).json({ message: 'Ребёнок не найден' }); return; }
+    console.error('[report] error:', err);
+    res.status(500).json({ message: 'Не удалось сформировать отчёт' });
   }
 };

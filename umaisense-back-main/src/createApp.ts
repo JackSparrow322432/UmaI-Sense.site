@@ -21,6 +21,7 @@ import articlesRoutes from './routes/articles.routes';
 import documentsRoutes from './routes/documents.routes';
 import tasksRoutes from './routes/tasks.routes';
 import enrollmentRoutes from './routes/enrollment.routes';
+import consentsRoutes from './routes/consents.routes';
 import { seedMilestones } from './utils/seedMilestones';
 import { seedAdmin } from './utils/seedAdmin';
 import { createIndexes } from './utils/createIndexes';
@@ -182,6 +183,7 @@ export const createApp = () => {
   app.use('/api/documents', documentsRoutes);
   app.use('/api/tasks', tasksRoutes);
   app.use('/api/enrollment', enrollmentRoutes);
+  app.use('/api/consents', consentsRoutes);
 
   app.use('/api', (_req, res) => res.status(404).json({ message: 'Not found' }));
 

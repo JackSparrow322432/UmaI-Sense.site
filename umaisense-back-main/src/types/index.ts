@@ -9,6 +9,7 @@ export interface IUser extends Document {
   role: 'parent' | 'trainer' | 'admin';
   formerRole?: 'parent' | 'trainer';
   password?: string;
+  passwordChangedAt?: Date;
   isVerified: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -151,6 +152,9 @@ export interface IDocument extends Document {
   uploadExpiresAt?: Date;
   aiStatus: 'pending' | 'done' | 'failed' | 'disabled';
   aiExplanation?: string;
+  aiResult?: DocumentAiResult;
+  aiAt?: Date;
+  aiError?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -211,4 +215,15 @@ export interface ISession extends Document {
   cancelReason?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** ИИ-расшифровка медицинского документа (простыми словами, без новых диагнозов) */
+export interface DocumentAiResult {
+  docType: string;
+  summary: string;
+  keyFindings: string[];
+  terms: { term: string; meaning: string }[];
+  recommendations: string[];
+  questionsForDoctor: string[];
+  forTrainer: string[];
 }

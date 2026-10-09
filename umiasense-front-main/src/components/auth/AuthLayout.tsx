@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 interface Props {
   title: string;
   subtitle: string;
@@ -31,6 +33,10 @@ export default function AuthLayout({ title, subtitle, children }: Props) {
           </div>
         </div>
 
+        <p className="mt-6 text-center text-[11px] text-gray-400 space-x-3">
+          <Link to="/privacy" className="hover:text-[#E07628]">Политика конфиденциальности</Link>
+          <Link to="/agreement" className="hover:text-[#E07628]">Пользовательское соглашение</Link>
+        </p>
       </div>
     </div>
   );

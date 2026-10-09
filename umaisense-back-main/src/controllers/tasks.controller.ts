@@ -206,7 +206,7 @@ export const uploadTaskSubmission = async (req: AuthRequest, res: Response): Pro
       return;
     }
 
-    const fileUrl = await uploadImage(req.file);
+    const fileUrl = await uploadImage(req.file, 'submission');
 
     const taskRating = await TaskRating.findOneAndUpdate(
       { taskId, childId },

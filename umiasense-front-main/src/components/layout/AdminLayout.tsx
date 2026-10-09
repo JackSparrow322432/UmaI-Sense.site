@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 
 const NAV_ITEMS = [
@@ -75,7 +75,9 @@ export default function AdminLayout() {
 
   const avatarLetter = (user?.name?.[0] ?? user?.email?.[0] ?? 'A').toUpperCase();
 
-  const SidebarContent = () => (
+  // Обычная функция, а не компонент: компонент, объявленный внутри рендера, пересоздаётся
+  // на каждом рендере и теряет состояние (react-hooks/static-components)
+  const renderSidebar = () => (
     <>
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5">
         <p className="text-xs font-medium text-gray-400 px-3 mb-2">Управление</p>
@@ -127,7 +129,7 @@ export default function AdminLayout() {
     </>
   );
 
-  const BrandLogo = () => (
+  const renderBrandLogo = () => (
     <div className="flex items-center gap-2.5">
       <div className="w-7 h-7 rounded-lg bg-[#E07628] flex items-center justify-center flex-shrink-0">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -148,9 +150,9 @@ export default function AdminLayout() {
     <div className="min-h-screen bg-gray-50">
       <aside className="hidden sm:flex fixed left-0 top-0 h-full w-56 flex-col bg-white border-r border-gray-200 z-30">
         <div className="px-5 h-14 flex items-center border-b border-gray-200 flex-shrink-0">
-          <BrandLogo />
+          {renderBrandLogo()}
         </div>
-        <SidebarContent />
+        {renderSidebar()}
       </aside>
 
       <header className="sm:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-gray-200 px-4 h-14 flex items-center justify-between">
@@ -165,7 +167,7 @@ export default function AdminLayout() {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <BrandLogo />
+          {renderBrandLogo()}
         </div>
       </header>
 
@@ -182,7 +184,7 @@ export default function AdminLayout() {
         }`}
       >
         <div className="px-4 h-14 flex items-center justify-between border-b border-gray-200 flex-shrink-0">
-          <BrandLogo />
+          {renderBrandLogo()}
           <button
             onClick={closeDrawer}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"
@@ -192,12 +194,16 @@ export default function AdminLayout() {
             </svg>
           </button>
         </div>
-        <SidebarContent />
+        {renderSidebar()}
       </aside>
 
       <main className="sm:ml-56 pt-14 sm:pt-0 min-h-screen">
         <div className="max-w-5xl mx-auto px-4 sm:px-8 py-8">
           <Outlet />
+          <footer className="mt-12 pt-4 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-400">
+            <Link to="/privacy" className="hover:text-[#E07628]">Политика конфиденциальности</Link>
+            <Link to="/agreement" className="hover:text-[#E07628]">Пользовательское соглашение</Link>
+          </footer>
         </div>
       </main>
     </div>
