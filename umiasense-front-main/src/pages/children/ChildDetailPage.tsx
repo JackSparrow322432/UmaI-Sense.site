@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { childrenApi, emotionsApi, activitiesApi, diaryApi } from '../../api';
 import type { Child, Emotion, Activity, DiaryEntry, MoodType, ActivityCategory, DiaryTag } from '../../types';
 import { useAuthStore } from '../../store/authStore';
+import { saveBlobResponse } from '../../utils/downloadBlob';
 import AddEmotionModal from '../../components/modals/AddEmotionModal';
 import AddDiaryModal from '../../components/modals/AddDiaryModal';
 import AddActivityModal from '../../components/modals/AddActivityModal';
@@ -85,6 +86,19 @@ export default function ChildDetailPage() {
   const [modal, setModal] = useState<'emotion' | 'diary' | 'activity' | null>(null);
 
   const isParent = user?.role === 'parent';
+  const [downloadingDossier, setDownloadingDossier] = useState(false);
+  const downloadDossier = async () => {
+    if (!childId) return;
+    setDownloadingDossier(true);
+    try {
+      saveBlobResponse(await childrenApi.dossier(childId), 'UmaiSense_dossier.pdf');
+      toast.success('Досье скачано');
+    } catch {
+      toast.error('Не удалось сформировать досье');
+    } finally {
+      setDownloadingDossier(false);
+    }
+  };
 
   const fetchAll = async () => {
     if (!childId) return;
@@ -293,6 +307,26 @@ export default function ChildDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Досье ребёнка — PDF со всей информацией и расшифровками документов */}
+      {isParent && (
+        <button
+          type="button"
+          onClick={downloadDossier}
+          disabled={downloadingDossier}
+          className="w-full flex items-center gap-3 bg-white rounded-xl border border-gray-200 p-4 hover:border-[#E07628]/40 transition text-left disabled:opacity-60"
+        >
+          <span className="w-10 h-10 rounded-lg bg-[#FFF3EA] text-[#E07628] flex items-center justify-center flex-shrink-0">
+            {downloadingDossier
+              ? <span className="w-4 h-4 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-gray-900">{downloadingDossier ? 'Формируем досье…' : 'Скачать досье ребёнка (PDF)'}</span>
+            <span className="block text-xs text-gray-400 mt-0.5">Вся информация о ребёнке, наблюдения, ИИ-скрининг и расшифровки документов</span>
+          </span>
+        </button>
+      )}
 
       {/* Module grid */}
       <div>

@@ -11,6 +11,7 @@ import DiaryEntry from '../models/DiaryEntry';
 import Notification from '../models/Notification';
 import { Scrub, makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU } from '../utils/anonymize';
 import { hasActiveConsent } from '../utils/consent';
+import { documentInsightLines } from '../utils/documentAi';
 
 // ─── OpenAI client (only initialised when key is present) ────────────────────
 
@@ -26,7 +27,7 @@ const getOpenAI = (): OpenAI | null => {
  * Промпт для внешнего ИИ-сервиса (OpenAI, за пределами РК). Обезличивание — utils/anonymize.ts.
  * Функция scrub создаётся на каждый запрос (без общего состояния между запросами).
  */
-const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[], scrub: Scrub): string => {
+const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[], scrub: Scrub, docInsights: string[] = []): string => {
   const L: string[] = [];
 
   L.push('Ты — опытный специалист по развитию детей с особыми потребностями.');
@@ -62,8 +63,15 @@ const buildPrompt = (child: any, emotions: any[], activities: any[], diary: any[
     });
   }
 
+  if (docInsights.length) {
+    L.push('');
+    L.push('=== МЕДИЦИНСКИЕ ДОКУМЕНТЫ (расшифровки, обезличены) ===');
+    L.push(...docInsights);
+    L.push('Учитывай рекомендации и ограничения из документов; не противоречь назначениям врачей.');
+  }
+
   L.push('');
-  L.push('=== ЗАДАЧА ===');
+  L.push('=== ЗАДАЧА ==='); 
   L.push('На основе профиля и наблюдений выше дай конкретные персональные рекомендации на СЕГОДНЯ.');
   L.push('Ответь ТОЛЬКО JSON-объектом — никакого markdown, никакого вводного текста:');
   L.push('{');
@@ -143,7 +151,11 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
       // Имена для скрытия в свободном тексте: ребёнок, родитель, тренеры
       const people = await User.find({ _id: { $in: [child.parentId, ...(child.trainers ?? [])] } }).select('name').lean();
       const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
-      const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary, scrub);
+      // Расшифровки документов — только при отдельном согласии родителя на анализ документов
+      const docInsights = (await hasActiveConsent(req.user!.id, 'documents_ai'))
+        ? await documentInsightLines(child._id, scrub)
+        : [];
+      const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary, scrub, docInsights);
 
       // Ошибка ИИ (неверный ключ, лимит, сбой) не должна ломать страницу:
       // пишем причину в лог и отдаём общие рекомендации

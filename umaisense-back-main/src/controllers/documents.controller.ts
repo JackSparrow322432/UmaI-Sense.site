@@ -9,6 +9,10 @@ import {
 } from '../utils/documentStorage';
 import { DOCUMENT_TYPES, matchesSignature, extFor, cleanFileName } from '../utils/fileTypes';
 import { logAccess } from '../utils/audit';
+import User from '../models/User';
+import { makeScrubber } from '../utils/anonymize';
+import { providerName, aiErrorMessage } from '../utils/aiClient';
+import { explainDocument, documentAiAvailability, documentAiMissingConsents, DocumentAiError } from '../utils/documentAi';
 
 /**
  * Медицинские и личные документы ребёнка.
@@ -19,7 +23,8 @@ import { logAccess } from '../utils/audit';
  * его можно только по ссылке на 5 минут, которую API выдаёт после проверки прав.
  * Каждое открытие документа записывается в журнал доступа.
  *
- * ИИ-разбор документов отключён: медицинские документы не передаются за рубеж.
+ * ИИ-расшифровка документа — по кнопке родителя и только при согласии documents_ai
+ * (см. utils/documentAi.ts: какие данные и куда передаются).
  */
 
 const UPLOAD_WINDOW_MS = 30 * 60 * 1000; // незавершённая загрузка удаляется через 30 минут
@@ -258,5 +263,59 @@ export const deleteDocument = async (req: AuthRequest, res: Response): Promise<v
     res.json({ message: 'Документ удалён' });
   } catch {
     res.status(500).json({ message: 'Ошибка сервера' });
+  }
+};
+
+// ─── ИИ-расшифровка документов ───────────────────────────────────────────────
+
+const EXPLAIN_DAILY_LIMIT = () => Math.max(Number(process.env.AI_DOCS_DAILY_LIMIT) || 20, 1);
+
+// GET /api/documents/:childId/ai/status — доступна ли расшифровка и каких согласий не хватает
+export const documentAiStatus = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const child = await Child.findOne({ _id: req.params['childId'], parentId: req.user?.id }).select('parentId');
+    if (!child) { res.status(404).json({ message: 'Child not found' }); return; }
+    const avail = documentAiAvailability();
+    res.json({
+      ...avail,
+      provider: providerName(),
+      missingConsents: avail.enabled ? await documentAiMissingConsents(child.parentId, providerName()) : [],
+    });
+  } catch {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// POST /api/documents/:childId/:documentId/explain — расшифровать документ (только родитель ребёнка)
+export const explainDocumentHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const child = await Child.findOne({ _id: req.params['childId'], parentId: req.user?.id });
+    if (!child) { res.status(404).json({ message: 'Child not found' }); return; }
+
+    const missing = await documentAiMissingConsents(child.parentId, providerName());
+    if (missing.length) {
+      res.status(403).json({ code: 'CONSENT_REQUIRED', missingConsents: missing, message: 'Нужно согласие на анализ документов ИИ' });
+      return;
+    }
+    const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
+    const used = await DocumentModel.countDocuments({ childId: child._id, aiAt: { $gte: dayAgo } });
+    if (used >= EXPLAIN_DAILY_LIMIT()) {
+      res.status(429).json({ message: `Не больше ${EXPLAIN_DAILY_LIMIT()} расшифровок в сутки для одного ребёнка. Попробуйте завтра.` });
+      return;
+    }
+
+    const people = await User.find({ _id: { $in: [child.parentId, ...(child.trainers ?? [])] } }).select('name').lean();
+    const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
+    const result = await explainDocument(String(req.params['documentId']), String(child._id), scrub);
+    await logAccess(req, { action: 'document.ai_explain', childId: child._id, documentId: String(req.params['documentId']) });
+    const doc = await DocumentModel.findById(req.params['documentId']).select(PUBLIC_FIELDS);
+    res.json({ result, document: doc });
+  } catch (err: any) {
+    if (err instanceof DocumentAiError) {
+      res.status(err.status).json({ message: err.message, code: err.code });
+      return;
+    }
+    console.error('[documents:explain]', err?.message ?? err);
+    res.status(err?.status ? 502 : 500).json({ message: aiErrorMessage(err, 'Не удалось расшифровать документ. Попробуйте позже.') });
   }
 };

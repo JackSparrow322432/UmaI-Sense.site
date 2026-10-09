@@ -11,6 +11,8 @@ import { recordConsent } from '../utils/consent';
 import { logAccess } from '../utils/audit';
 import AuditLog from '../models/AuditLog';
 import { purgeChildData } from '../utils/purgeChild';
+import User from '../models/User';
+import { buildChildReportPdf, ChildNotFoundError } from '../utils/childReport';
 
 /**
  * Проверка полей, обязательных для записи на занятия.
@@ -255,5 +257,24 @@ export const getAccessLog = async (req: AuthRequest, res: Response): Promise<voi
     res.json(entries);
   } catch {
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /api/children/:id/report.pdf — досье ребёнка для родителя (только свой ребёнок)
+export const downloadChildDossier = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const own = await Child.exists({ _id: req.params.id, parentId: req.user?.id });
+    if (!own) { res.status(404).json({ message: 'Child not found' }); return; }
+    const me = await User.findById(req.user?.id).select('name email').lean();
+    const { buffer, fileName } = await buildChildReportPdf(String(req.params.id), { name: me?.name, email: me?.email }, { audience: 'parent' });
+    await logAccess(req, { action: 'report.download', childId: String(req.params.id) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="UmaiSense_dossier.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (err) {
+    if (err instanceof ChildNotFoundError) { res.status(404).json({ message: 'Child not found' }); return; }
+    console.error('[dossier] error:', err);
+    res.status(500).json({ message: 'Не удалось сформировать досье' });
   }
 };

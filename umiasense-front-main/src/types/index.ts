@@ -225,8 +225,30 @@ export interface DocumentItem {
   status?: 'uploading' | 'ready';
   aiStatus: 'pending' | 'done' | 'failed' | 'disabled';
   aiExplanation?: string;
+  aiResult?: DocumentAiResult;
+  aiAt?: string;
+  aiError?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** ИИ-расшифровка медицинского документа */
+export interface DocumentAiResult {
+  docType: string;
+  summary: string;
+  keyFindings: string[];
+  terms: { term: string; meaning: string }[];
+  recommendations: string[];
+  questionsForDoctor: string[];
+  forTrainer: string[];
+}
+
+export interface DocumentAiStatus {
+  enabled: boolean;
+  images: boolean;
+  reason?: string;
+  provider: 'openai' | 'local' | 'off';
+  missingConsents: ConsentType[];
 }
 
 // ─── Запись на занятия ───────────────────────────────────────────────────────
@@ -292,7 +314,7 @@ export interface Session {
 
 export interface AccessLogEntry {
   _id: string;
-  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view' | 'report.download';
+  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view' | 'report.download' | 'document.ai_explain';
   userId?: Pick<User, '_id' | 'name' | 'role'> | null;
   role?: UserRole;
   createdAt: string;

@@ -10,7 +10,8 @@ const ACTION: Record<AccessLogEntry['action'], string> = {
   'child.access_granted': 'получил(а) доступ по коду',
   'screening.run': 'запустил(а) ИИ-скрининг',
   'screening.view': 'открыл(а) отчёт ИИ-скрининга',
-  'report.download': 'скачал(а) PDF-отчёт по профилю',
+  'report.download': 'скачал(а) PDF-досье ребёнка',
+  'document.ai_explain': 'запросил(а) ИИ-расшифровку документа',
 };
 const ROLE: Record<string, string> = { parent: 'Родитель', trainer: 'Тренер', admin: 'Администратор' };
 

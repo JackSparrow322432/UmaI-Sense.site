@@ -8,7 +8,7 @@ import type {
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
   Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry,
   EnrollmentRequest, Assignment, Session, ScheduleSlot, Weekday, RequestStatus,
-  ConsentStatus, ConsentType, Screening, ScreeningStatus,
+  ConsentStatus, ConsentType, Screening, ScreeningStatus, DocumentAiResult, DocumentAiStatus,
 } from '../types';
 
 export const authApi = {
@@ -40,6 +40,8 @@ export const uploadApi = {
 };
 
 export const childrenApi = {
+  // PDF-досье ребёнка для родителя
+  dossier: (childId: string) => api.get<Blob>(`/children/${childId}/report.pdf`, { responseType: 'blob', timeout: 60_000 }),
   getAll: () => api.get<Child[]>('/children'),
   getOne: (id: string) => api.get<Child>(`/children/${id}`),
   create: (data: Partial<Child> & { consent: boolean; consentThirdParty: boolean }) => api.post<Child>('/children', data),
@@ -140,6 +142,10 @@ export const documentsApi = {
     }),
   delete: (childId: string, documentId: string) =>
     api.delete(`/documents/${childId}/${documentId}`),
+  // ИИ-расшифровка документа (только родитель; нужен consent documents_ai)
+  aiStatus: (childId: string) => api.get<DocumentAiStatus>(`/documents/${childId}/ai/status`),
+  explain: (childId: string, documentId: string) =>
+    api.post<{ result: DocumentAiResult; document: DocumentItem }>(`/documents/${childId}/${documentId}/explain`, {}, { timeout: 90_000 }),
 };
 
 export const tasksApi = {

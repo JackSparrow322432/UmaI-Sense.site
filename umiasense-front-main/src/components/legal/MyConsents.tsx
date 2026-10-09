@@ -11,7 +11,7 @@ const LABELS: Record<ConsentType, string> = {
   third_party_transfer: 'Передача третьим лицам из Политики',
   cross_border: 'Трансграничная передача обезличенных данных внешнему ИИ',
   ai_screening: 'ИИ-скрининг профиля ребёнка',
-  documents_ai: 'Анализ текста документов внешним ИИ (без фото документов)',
+  documents_ai: 'Анализ медицинских документов ИИ (расшифровка, учёт в советах и досье)',
 };
 
 const OPTIONAL: ConsentType[] = ['cross_border', 'ai_screening', 'documents_ai'];
@@ -31,7 +31,7 @@ export default function MyConsents() {
     const WARN: Partial<Record<ConsentType, string>> = {
       cross_border: 'Отозвать согласие? Персональные ИИ-рекомендации и ИИ-скрининг станут недоступны, вместо них будут общие советы.',
       ai_screening: 'Отозвать согласие на ИИ-скрининг? Новые скрининги будут недоступны.',
-      documents_ai: 'Отозвать согласие? Текст документов больше не будет передаваться в ИИ.',
+      documents_ai: 'Отозвать согласие? Документы больше не будут передаваться в ИИ, а расшифровки перестанут учитываться в советах.',
     };
     if (!on && !confirm(WARN[type] ?? 'Отозвать согласие?')) return;
     setBusy(type);

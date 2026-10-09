@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { adminApi } from '../../api';
+import { saveBlobResponse } from '../../utils/downloadBlob';
 import { skiText, adaptiveText } from '../../utils/enrollment';
 import type { Child, Emotion, Activity, DiaryEntry, User, MoodType, ActivityCategory, DiaryTag } from '../../types';
 
@@ -105,23 +106,15 @@ export default function AdminChildDetailPage() {
   const [showAudit,  setShowAudit]  = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  // Скачивание PDF-отчёта: запрос с токеном, затем сохранение файла через временную ссылку
+  // Скачивание PDF-досье: запрос с токеном, затем сохранение файла
   const downloadReport = async () => {
     if (!childId || !child) return;
     setDownloading(true);
     try {
-      const { data, headers } = await adminApi.getChildReport(childId);
-      const cd = String(headers['content-disposition'] ?? '');
-      const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
-      const fileName = m ? decodeURIComponent(m[1]) : `UmaiSense_отчёт_${child.lastName ?? ''}_${child.name}.pdf`;
-      const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url; a.download = fileName;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      toast.success('Отчёт скачан');
+      saveBlobResponse(await adminApi.getChildReport(childId), `UmaiSense_досье_${child.lastName ?? ''}_${child.name}.pdf`);
+      toast.success('Досье скачано');
     } catch {
-      toast.error('Не удалось сформировать отчёт');
+      toast.error('Не удалось сформировать досье');
     } finally {
       setDownloading(false);
     }
@@ -175,7 +168,7 @@ export default function AdminChildDetailPage() {
           {downloading
             ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-          {downloading ? 'Формируем…' : 'Скачать PDF-отчёт'}
+          {downloading ? 'Формируем…' : 'Скачать досье (PDF)'}
         </button>
       </div>
 

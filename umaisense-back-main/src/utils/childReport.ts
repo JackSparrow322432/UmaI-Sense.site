@@ -61,8 +61,10 @@ export class ChildNotFoundError extends Error {}
 /** Собирает данные и возвращает PDF-файл отчёта */
 export const buildChildReportPdf = async (
   childId: string,
-  generatedBy: { name?: string; email?: string }
+  generatedBy: { name?: string; email?: string },
+  opts: { audience?: 'admin' | 'parent' } = {}
 ): Promise<{ buffer: Buffer; fileName: string }> => {
+  const forParent = opts.audience === 'parent';
   const child: any = await Child.findById(childId)
     .populate('parentId', 'name email')
     .populate('trainers', 'name email')
@@ -78,7 +80,7 @@ export const buildChildReportPdf = async (
     Activity.find({ childId: id, date: { $gte: since } }).lean(),
     DiaryEntry.find({ childId: id }).sort({ createdAt: -1 }).limit(10).populate('author', 'name role').lean(),
     ChildMilestone.find({ childId: id }).populate('milestoneId', 'skill direction').lean(),
-    DocumentModel.find({ childId: id, status: 'ready' }).sort({ createdAt: -1 }).select('fileName mimeType size createdAt').lean(),
+    DocumentModel.find({ childId: id, status: 'ready' }).sort({ createdAt: -1 }).select('fileName mimeType size createdAt aiStatus aiResult aiAt').lean(),
     Recommendation.findOne({ childId: id }).sort({ generatedAt: -1 }).lean(),
     Screening.findOne({ childId: id, status: 'done' }).sort({ createdAt: -1 }).lean(),
     EnrollmentRequest.findOne({ childId: id }).sort({ createdAt: -1 }).lean(),
@@ -89,7 +91,7 @@ export const buildChildReportPdf = async (
 
   // ─── PDF ────────────────────────────────────────────────────────────────────
   const doc = new PDFDocument({ size: 'A4', margins: { top: 56, bottom: 56, left: 50, right: 50 }, bufferPages: true, info: {
-    Title: `Отчёт: ${child.name} ${child.lastName ?? ''}`.trim(), Author: 'UmaiSense', Subject: 'Отчёт по профилю ребёнка',
+    Title: `Досье: ${child.name} ${child.lastName ?? ''}`.trim(), Author: 'UmaiSense', Subject: 'Досье ребёнка',
   } });
   doc.registerFont('regular', fs.readFileSync(FONT));
   doc.registerFont('bold', fs.readFileSync(FONT_BOLD));
@@ -161,9 +163,9 @@ export const buildChildReportPdf = async (
 
   // Шапка
   doc.rect(0, 0, doc.page.width, 92).fill(ORANGE);
-  doc.font('bold').fontSize(18).fillColor('#FFFFFF').text('Отчёт по профилю ребёнка', X, 26, { width: W });
+  doc.font('bold').fontSize(18).fillColor('#FFFFFF').text(`Досье ребёнка: ${child.name} ${child.lastName ?? ''}`.trim(), X, 26, { width: W });
   doc.font('regular').fontSize(9.5).fillColor('#FFF3EA')
-    .text(`UmaiSense · сформирован ${fmtDateTime(new Date())} · ${generatedBy.name || generatedBy.email || 'администратор'}`, X, 52, { width: W });
+    .text(`UmaiSense · сформировано ${fmtDateTime(new Date())} · ${generatedBy.name || generatedBy.email || (forParent ? 'родитель' : 'администратор')}`, X, 52, { width: W });
   doc.y = 106;
   doc.font('regular').fontSize(8).fillColor('#B45309')
     .text('КОНФИДЕНЦИАЛЬНО. Содержит персональные данные и сведения о здоровье ребёнка (Закон РК «О персональных данных и их защите»). Не передавайте третьим лицам без согласия законного представителя.', X, doc.y, { width: W });
@@ -279,12 +281,31 @@ export const buildChildReportPdf = async (
     para('Рекомендации ещё не формировались.', { color: GRAY });
   }
 
-  // 9. Документы
-  heading('9. Документы');
-  table(['Файл', 'Тип', 'Размер', 'Загружен'],
+  // 9. Документы и их расшифровка
+  heading('9. Медицинские документы');
+  table(['Файл', 'Тип', 'Загружен', 'Расшифровка ИИ'],
     docs.map((d: any) => [clip(d.fileName, 80), d.mimeType === 'application/pdf' ? 'PDF' : d.mimeType.includes('word') ? 'Word' : 'Фото',
-      d.size ? `${Math.max(1, Math.round(d.size / 1024))} КБ` : '—', fmtDate(d.createdAt)]),
-    [W - 230, 60, 70, 100]);
+      fmtDate(d.createdAt), d.aiStatus === 'done' ? `есть (${fmtDate(d.aiAt)})` : 'нет']),
+    [W - 250, 55, 85, 110]);
+  const decoded = docs.filter((d: any) => d.aiStatus === 'done' && d.aiResult);
+  if (decoded.length) {
+    para('Расшифровки подготовлены ИИ по тексту документов, носят информационный характер и не заменяют консультацию врача.', { color: GRAY, size: 8.5 });
+    for (const d of decoded as any[]) {
+      const r = d.aiResult;
+      ensure(60);
+      doc.moveDown(0.3);
+      doc.font('bold').fontSize(10).fillColor(DARK).text(`${r.docType || 'Документ'} · ${clip(d.fileName, 60)}`, X, doc.y, { width: W });
+      doc.moveDown(0.15);
+      para(r.summary);
+      if (r.keyFindings?.length) { para('Главное:', { color: GRAY, size: 9 }); bullets(r.keyFindings); }
+      if (r.terms?.length) {
+        table(['Термин', 'Что значит'], r.terms.map((t: any) => [t.term, t.meaning]), [140, W - 140]);
+      }
+      if (r.recommendations?.length) { para('Рекомендовано в документе:', { color: GRAY, size: 9 }); bullets(r.recommendations); }
+      if (r.forTrainer?.length) { para('Важно для тренера:', { color: GRAY, size: 9 }); bullets(r.forTrainer); }
+      if (forParent && r.questionsForDoctor?.length) { para('Вопросы врачу:', { color: GRAY, size: 9 }); bullets(r.questionsForDoctor); }
+    }
+  }
 
   // 10. Согласия
   heading('10. Действующие согласия законного представителя');
@@ -311,5 +332,5 @@ export const buildChildReportPdf = async (
   doc.end();
   const buffer = await done;
   const safe = `${child.lastName ?? ''}_${child.name}`.replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '') || 'child';
-  return { buffer, fileName: `UmaiSense_отчёт_${safe}_${new Date().toISOString().slice(0, 10)}.pdf` };
+  return { buffer, fileName: `UmaiSense_досье_${safe}_${new Date().toISOString().slice(0, 10)}.pdf` };
 };

@@ -8,6 +8,7 @@ import {
   deleteChild,
   removeTrainer,
   getAccessLog,
+  downloadChildDossier,
 } from '../controllers/children.controller';
 import { protect, parentOnly } from '../middleware/auth.middleware';
 import { getScreeningStatus, runScreening, listScreenings, getScreening } from '../controllers/screening.controller';
@@ -31,6 +32,7 @@ router.param('screeningId', checkObjectId);
 router.get('/', getChildren);
 router.get('/:id', getChild);
 router.get('/:id/access-log', parentOnly, getAccessLog);
+router.get('/:id/report.pdf', parentOnly, downloadChildDossier);
 
 // ИИ-скрининг: родитель ребёнка или администратор (проверка внутри контроллера)
 router.get('/:id/screening/status', getScreeningStatus);

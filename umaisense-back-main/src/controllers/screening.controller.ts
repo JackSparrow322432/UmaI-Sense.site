@@ -1,5 +1,4 @@
 import { Response } from 'express';
-import OpenAI from 'openai';
 import { Types } from 'mongoose';
 import { AuthRequest } from '../types';
 import Child from '../models/Child';
@@ -14,6 +13,8 @@ import { makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU,
 import { hasActiveConsent, CONSENT_VERSION } from '../utils/consent';
 import { logAccess } from '../utils/audit';
 import { extractDocumentText } from '../utils/documentText';
+import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage } from '../utils/aiClient';
+import { documentInsightLines } from '../utils/documentAi';
 
 /**
  * ИИ-скрининг ребёнка: анализ профиля, наблюдений, вех развития и документов → структурированный отчёт
@@ -32,21 +33,12 @@ import { extractDocumentText } from '../utils/documentText';
  * Результат не является медицинским заключением — это указано в промпте и в интерфейсе.
  */
 
-type Provider = 'openai' | 'local' | 'off';
-
-const providerName = (): Provider => {
-  const p = (process.env.AI_SCREENING_PROVIDER || 'openai').toLowerCase();
-  return p === 'local' || p === 'off' ? p : 'openai';
-};
-
 /**
  * Текст документов во ВНЕШНИЙ ИИ — только если оператор явно включил AI_SCREENING_DOCS_EXTERNAL=true
  * (юридическое решение: трансграничная передача сведений о здоровье) И родитель дал отдельное
  * согласие documents_ai. Передаётся только обезличенный текст PDF/DOCX; фото документов не передаются,
  * потому что имя и ИИН на изображении скрыть нельзя.
  */
-const docsExternalEnabled = () => process.env.AI_SCREENING_DOCS_EXTERNAL === 'true';
-
 type DocsMode = 'none' | 'types_only' | 'text';
 const docsModeFor = (p: Provider): DocsMode =>
   p === 'local' ? 'text' : p === 'openai' ? (docsExternalEnabled() ? 'text' : 'types_only') : 'none';
@@ -65,32 +57,9 @@ const requiredConsents = async (parentId: Types.ObjectId, p: Provider): Promise<
   ];
 };
 
-/** Понятный текст для типичных ошибок внешнего ИИ */
-const aiErrorMessage = (err: any): string => {
-  const status = err?.status;
-  if (status === 401 || err?.code === 'invalid_api_key') return 'Ключ доступа к ИИ (OPENAI_API_KEY) недействителен. Обратитесь к администратору.';
-  if (status === 429 || err?.code === 'insufficient_quota') return 'Исчерпан лимит или баланс аккаунта ИИ. Обратитесь к администратору.';
-  if (status && status >= 500) return 'Сервис ИИ временно недоступен. Попробуйте через несколько минут.';
-  return 'Не удалось выполнить скрининг. Попробуйте позже.';
-};
-
 const PERIOD_DAYS = () => Math.min(Math.max(Number(process.env.AI_SCREENING_PERIOD_DAYS) || 30, 7), 180);
 const DAILY_LIMIT = () => Math.max(Number(process.env.AI_SCREENING_DAILY_LIMIT) || 5, 1);
 const MAX_DOC_CHARS_TOTAL = 20_000;
-
-const getClient = (p: Provider): { client: OpenAI; model: string } | null => {
-  if (p === 'local') {
-    const baseURL = process.env.AI_LOCAL_BASE_URL;
-    const model = process.env.AI_LOCAL_MODEL;
-    if (!baseURL || !model) return null;
-    return { client: new OpenAI({ baseURL, apiKey: process.env.AI_LOCAL_API_KEY || 'local' }), model };
-  }
-  if (p === 'openai') {
-    if (!process.env.OPENAI_API_KEY) return null;
-    return { client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }), model: process.env.AI_SCREENING_MODEL || 'gpt-4o-mini' };
-  }
-  return null;
-};
 
 // ─── Доступ ──────────────────────────────────────────────────────────────────
 
@@ -133,7 +102,7 @@ const MISSING_SECTIONS = ['basic', 'sensory', 'fears', 'interests', 'goals', 'be
 const buildPrompt = (args: {
   child: any; scrub: Scrub; periodDays: number;
   emotions: any[]; activities: any[]; diary: any[]; milestones: any[];
-  docKinds: string[]; docTexts: { kind: string; text: string }[];
+  docKinds: string[]; docTexts: { kind: string; text: string }[]; docInsights: string[];
   parentNotes: number; trainerNotes: number;
 }): string => {
   const { child, scrub } = args;
@@ -185,6 +154,10 @@ const buildPrompt = (args: {
   L.push('=== ДОКУМЕНТЫ ===');
   if (!args.docKinds.length) L.push('Документы не загружены.');
   else L.push(`Загружены: ${args.docKinds.join(', ')}.`);
+  if (args.docInsights.length) {
+    L.push('Расшифровки медицинских документов (подготовлены ранее, обезличены):');
+    L.push(...args.docInsights);
+  }
   args.docTexts.forEach((d, i) => {
     L.push(`--- Документ ${i + 1} (текст обезличен) ---`);
     L.push(d.text);
@@ -314,6 +287,10 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     const docsMode = docsModeFor(provider);
     const docKinds = [...new Set(docs.map((d) => docKind(d.fileName)))];
     const docTexts: { kind: string; text: string }[] = [];
+    // Готовые ИИ-расшифровки документов — только при согласии родителя на анализ документов
+    const docInsights = (await hasActiveConsent(child.parentId, 'documents_ai'))
+      ? await documentInsightLines(child._id, scrub)
+      : [];
     let documentsSkipped = 0;
     if (docsMode === 'text') {
       let total = 0;
@@ -344,6 +321,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
       ...(diary.length ? ['дневник'] : []),
       ...(milestones.length ? ['вехи развития'] : []),
       ...(docs.length ? [docTexts.length ? 'текст документов' : 'типы документов'] : []),
+      ...(docInsights.length ? ['расшифровки документов'] : []),
     ];
 
     const screening = await Screening.create({
@@ -365,7 +343,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     await logAccess(req, { action: 'screening.run', childId: child._id, meta: { screeningId: String(screening._id), provider } });
 
     const prompt = buildPrompt({
-      child, scrub, periodDays, emotions, activities, diary, milestones, docKinds, docTexts,
+      child, scrub, periodDays, emotions, activities, diary, milestones, docKinds, docTexts, docInsights,
       parentNotes: emotions.length + activities.length + diaryParent,
       trainerNotes: diary.length - diaryParent,
     });
@@ -391,7 +369,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     res.status(201).json(screening);
   } catch (err: any) {
     console.error('[screening] error:', err?.message ?? err);
-    const message = aiErrorMessage(err);
+    const message = aiErrorMessage(err, 'Не удалось выполнить скрининг. Попробуйте позже.');
     if (screeningId) {
       await Screening.updateOne({ _id: screeningId }, { status: 'failed', error: message }).catch(() => {});
     }
