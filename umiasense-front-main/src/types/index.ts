@@ -300,7 +300,7 @@ export interface AccessLogEntry {
 
 // ─── Согласия на обработку персональных данных ──────────────────────────────
 
-export type ConsentType = 'account' | 'child_data' | 'third_party_transfer' | 'cross_border' | 'ai_screening';
+export type ConsentType = 'account' | 'child_data' | 'third_party_transfer' | 'cross_border' | 'ai_screening' | 'documents_ai';
 
 export interface ConsentRecord {
   _id: string;
@@ -314,7 +314,7 @@ export interface ConsentRecord {
 export interface ConsentStatus {
   currentVersion: string;
   missingRequired: ConsentType[];
-  active: { cross_border: boolean; ai_screening: boolean };
+  active: { cross_border: boolean; ai_screening: boolean; documents_ai: boolean };
   consents: ConsentRecord[];
 }
 

@@ -39,6 +39,41 @@ const providerName = (): Provider => {
   return p === 'local' || p === 'off' ? p : 'openai';
 };
 
+/**
+ * Текст документов во ВНЕШНИЙ ИИ — только если оператор явно включил AI_SCREENING_DOCS_EXTERNAL=true
+ * (юридическое решение: трансграничная передача сведений о здоровье) И родитель дал отдельное
+ * согласие documents_ai. Передаётся только обезличенный текст PDF/DOCX; фото документов не передаются,
+ * потому что имя и ИИН на изображении скрыть нельзя.
+ */
+const docsExternalEnabled = () => process.env.AI_SCREENING_DOCS_EXTERNAL === 'true';
+
+type DocsMode = 'none' | 'types_only' | 'text';
+const docsModeFor = (p: Provider): DocsMode =>
+  p === 'local' ? 'text' : p === 'openai' ? (docsExternalEnabled() ? 'text' : 'types_only') : 'none';
+
+/** Согласия родителя, без которых скрининг не запускается */
+const requiredConsents = async (parentId: Types.ObjectId, p: Provider): Promise<string[]> => {
+  const [aiConsent, crossBorder, docsAi] = await Promise.all([
+    hasActiveConsent(parentId, 'ai_screening'),
+    hasActiveConsent(parentId, 'cross_border'),
+    hasActiveConsent(parentId, 'documents_ai'),
+  ]);
+  return [
+    ...(aiConsent ? [] : ['ai_screening']),
+    ...(p === 'openai' && !crossBorder ? ['cross_border'] : []),
+    ...(p === 'openai' && docsExternalEnabled() && !docsAi ? ['documents_ai'] : []),
+  ];
+};
+
+/** Понятный текст для типичных ошибок внешнего ИИ */
+const aiErrorMessage = (err: any): string => {
+  const status = err?.status;
+  if (status === 401 || err?.code === 'invalid_api_key') return 'Ключ доступа к ИИ (OPENAI_API_KEY) недействителен. Обратитесь к администратору.';
+  if (status === 429 || err?.code === 'insufficient_quota') return 'Исчерпан лимит или баланс аккаунта ИИ. Обратитесь к администратору.';
+  if (status && status >= 500) return 'Сервис ИИ временно недоступен. Попробуйте через несколько минут.';
+  return 'Не удалось выполнить скрининг. Попробуйте позже.';
+};
+
 const PERIOD_DAYS = () => Math.min(Math.max(Number(process.env.AI_SCREENING_PERIOD_DAYS) || 30, 7), 180);
 const DAILY_LIMIT = () => Math.max(Number(process.env.AI_SCREENING_DAILY_LIMIT) || 5, 1);
 const MAX_DOC_CHARS_TOTAL = 20_000;
@@ -218,18 +253,11 @@ export const getScreeningStatus = async (req: AuthRequest, res: Response): Promi
     const child = await loadChild(req, res);
     if (!child) return;
     const provider = providerName();
-    const [aiConsent, crossBorder] = await Promise.all([
-      hasActiveConsent(child.parentId, 'ai_screening'),
-      hasActiveConsent(child.parentId, 'cross_border'),
-    ]);
-    const missingConsents = [
-      ...(aiConsent ? [] : ['ai_screening']),
-      ...(provider === 'openai' && !crossBorder ? ['cross_border'] : []),
-    ];
+    const missingConsents = await requiredConsents(child.parentId, provider);
     res.json({
       provider,
       enabled: provider !== 'off' && !!getClient(provider),
-      documentsMode: provider === 'local' ? 'text' : provider === 'openai' ? 'types_only' : 'none',
+      documentsMode: docsModeFor(provider),
       missingConsents,
       dailyLimit: DAILY_LIMIT(),
     });
@@ -253,14 +281,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     // Согласия даёт родитель (законный представитель), даже если запускает администратор
-    const [aiConsent, crossBorder] = await Promise.all([
-      hasActiveConsent(child.parentId, 'ai_screening'),
-      hasActiveConsent(child.parentId, 'cross_border'),
-    ]);
-    const missingConsents = [
-      ...(aiConsent ? [] : ['ai_screening']),
-      ...(provider === 'openai' && !crossBorder ? ['cross_border'] : []),
-    ];
+    const missingConsents = await requiredConsents(child.parentId, provider);
     if (missingConsents.length) {
       res.status(403).json({ code: 'CONSENT_REQUIRED', missingConsents, message: 'Нужно согласие родителя на ИИ-скрининг' });
       return;
@@ -288,14 +309,18 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     // Имена ребёнка, родителя и тренеров скрываются в любом свободном тексте
     const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
 
-    // Документы: во внешний ИИ — только тип по словарю; в локальный (РК) — обезличенный текст
+    // Документы: локальный ИИ (РК) — обезличенный текст; внешний — только типы по словарю,
+    // либо обезличенный текст PDF/DOCX, если это включено оператором и родитель дал согласие documents_ai
+    const docsMode = docsModeFor(provider);
     const docKinds = [...new Set(docs.map((d) => docKind(d.fileName)))];
     const docTexts: { kind: string; text: string }[] = [];
     let documentsSkipped = 0;
-    if (provider === 'local') {
+    if (docsMode === 'text') {
       let total = 0;
       for (const d of docs) {
         if (total >= MAX_DOC_CHARS_TOTAL) { documentsSkipped++; continue; }
+        // Во внешний ИИ фото документов не передаём: имя и ИИН на изображении не скрыть
+        if (provider !== 'local' && String(d.mimeType).startsWith('image/')) { documentsSkipped++; continue; }
         try {
           const ex = await extractDocumentText(d as any);
           if (!ex) { documentsSkipped++; continue; }
@@ -318,7 +343,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
       ...(activities.length ? ['активности'] : []),
       ...(diary.length ? ['дневник'] : []),
       ...(milestones.length ? ['вехи развития'] : []),
-      ...(docs.length ? [provider === 'local' ? 'текст документов' : 'типы документов'] : []),
+      ...(docs.length ? [docTexts.length ? 'текст документов' : 'типы документов'] : []),
     ];
 
     const screening = await Screening.create({
@@ -332,7 +357,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
         sections,
         periodDays,
         counts: { emotions: emotions.length, activities: activities.length, diary: diary.length, milestones: milestones.length, documents: docs.length },
-        documentsMode: !docs.length ? 'none' : provider === 'local' ? 'text' : 'types_only',
+        documentsMode: !docs.length ? 'none' : docTexts.length ? 'text' : 'types_only',
         ...(documentsSkipped ? { documentsSkipped } : {}),
       },
     });
@@ -364,12 +389,13 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     screening.result = result;
     await screening.save();
     res.status(201).json(screening);
-  } catch (err) {
-    console.error('[screening] error:', err);
+  } catch (err: any) {
+    console.error('[screening] error:', err?.message ?? err);
+    const message = aiErrorMessage(err);
     if (screeningId) {
-      await Screening.updateOne({ _id: screeningId }, { status: 'failed', error: 'Ошибка обращения к ИИ' }).catch(() => {});
+      await Screening.updateOne({ _id: screeningId }, { status: 'failed', error: message }).catch(() => {});
     }
-    res.status(500).json({ message: 'Не удалось выполнить скрининг. Попробуйте позже.' });
+    res.status(err?.status ? 502 : 500).json({ message });
   }
 };
 

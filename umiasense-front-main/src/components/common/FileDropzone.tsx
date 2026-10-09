@@ -111,8 +111,10 @@ export default function FileDropzone({
           <span className="block text-xs text-gray-400 mt-0.5">
             {dragOver ? 'Отпустите файл, чтобы загрузить' : 'Нажмите или перетащите файл сюда'}
           </span>
-          <span id={hintId} className="block text-[11px] leading-snug text-gray-500 mt-1.5">
-            {rule.hint}
+          {/* Подсказка: какие форматы, размер и разрешение принимаются — крупно и заметно */}
+          <span id={hintId} className="block mt-2 rounded-lg bg-white/80 border border-[#E07628]/20 px-2.5 py-1.5 text-[12px] leading-snug text-gray-700">
+            <span className="font-semibold text-[#E07628]">Принимаем: </span>{rule.formatsLabel} · до {Math.round(rule.maxBytes / 1048576)} МБ
+            {rule.resolution && (<><br /><span className="font-semibold text-[#E07628]">Разрешение: </span>{rule.resolution}</>)}
           </span>
         </span>
       </button>

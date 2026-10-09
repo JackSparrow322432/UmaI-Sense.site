@@ -41,7 +41,7 @@ const fmtDate = (d: string) =>
 const DOCS_MODE: Record<ScreeningStatus['documentsMode'], string> = {
   none: 'Документы не используются.',
   types_only: 'Из документов передаются только их типы («выписка», «заключение невролога»…) — без текста и названий файлов.',
-  text: 'Текст документов анализирует ИИ-модель, размещённая в Казахстане; имена, ИИН, телефоны и даты в тексте скрываются.',
+  text: 'ИИ анализирует текст документов PDF и Word; имена, ИИН, телефоны и даты в тексте скрываются автоматически. Фото и сканы документов во внешний ИИ не передаются — загружайте документы в PDF.',
 };
 
 function Card({ title, icon, children, tone = 'default' }: { title: string; icon: string; children: React.ReactNode; tone?: 'default' | 'green' | 'red' }) {
@@ -71,6 +71,7 @@ export default function ScreeningPage() {
   const [consentOpen, setConsentOpen] = useState(false);
   const [agreeScreening, setAgreeScreening] = useState(false);
   const [agreeCrossBorder, setAgreeCrossBorder] = useState(false);
+  const [agreeDocs, setAgreeDocs] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
 
   const load = useCallback(async () => {
@@ -115,11 +116,13 @@ export default function ScreeningPage() {
 
   const needAi = status?.missingConsents.includes('ai_screening') ?? false;
   const needCross = status?.missingConsents.includes('cross_border') ?? false;
+  const needDocs = status?.missingConsents.includes('documents_ai') ?? false;
 
   const giveConsent = async () => {
     const types: ConsentType[] = [];
     if (needAi) types.push('ai_screening');
     if (needCross) types.push('cross_border');
+    if (needDocs) types.push('documents_ai');
     setSavingConsent(true);
     try {
       await consentsApi.grant(types);
@@ -304,10 +307,16 @@ export default function ScreeningPage() {
                 даты рождения, фото и документов) внешнему сервису ИИ
               </ConsentCheckbox>
             )}
+            {needDocs && (
+              <ConsentCheckbox checked={agreeDocs} onChange={setAgreeDocs} required link={{ to: '/agreement#consent-documents-ai', label: '(текст согласия)' }}>
+                Я даю согласие на передачу внешнему сервису ИИ обезличенного текста загруженных документов
+                (PDF, Word) — имена, ИИН, телефоны и даты в тексте скрываются. Фото документов не передаются
+              </ConsentCheckbox>
+            )}
             <button
               type="button"
               onClick={giveConsent}
-              disabled={savingConsent || (needAi && !agreeScreening) || (needCross && !agreeCrossBorder)}
+              disabled={savingConsent || (needAi && !agreeScreening) || (needCross && !agreeCrossBorder) || (needDocs && !agreeDocs)}
               className="w-full bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl py-3 text-sm font-semibold transition disabled:opacity-50"
             >
               {savingConsent ? 'Сохранение…' : 'Дать согласие'}

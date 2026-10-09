@@ -11,9 +11,10 @@ const LABELS: Record<ConsentType, string> = {
   third_party_transfer: 'Передача третьим лицам из Политики',
   cross_border: 'Трансграничная передача обезличенных данных внешнему ИИ',
   ai_screening: 'ИИ-скрининг профиля ребёнка',
+  documents_ai: 'Анализ текста документов внешним ИИ (без фото документов)',
 };
 
-const OPTIONAL: ConsentType[] = ['cross_border', 'ai_screening'];
+const OPTIONAL: ConsentType[] = ['cross_border', 'ai_screening', 'documents_ai'];
 
 const fmt = (d: string) => new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
@@ -27,9 +28,12 @@ export default function MyConsents() {
   useEffect(() => { void load(); }, []);
 
   const toggle = async (type: ConsentType, on: boolean) => {
-    if (!on && !confirm(type === 'cross_border'
-      ? 'Отозвать согласие? Персональные ИИ-рекомендации и ИИ-скрининг станут недоступны, вместо них будут общие советы.'
-      : 'Отозвать согласие на ИИ-скрининг? Новые скрининги будут недоступны.')) return;
+    const WARN: Partial<Record<ConsentType, string>> = {
+      cross_border: 'Отозвать согласие? Персональные ИИ-рекомендации и ИИ-скрининг станут недоступны, вместо них будут общие советы.',
+      ai_screening: 'Отозвать согласие на ИИ-скрининг? Новые скрининги будут недоступны.',
+      documents_ai: 'Отозвать согласие? Текст документов больше не будет передаваться в ИИ.',
+    };
+    if (!on && !confirm(WARN[type] ?? 'Отозвать согласие?')) return;
     setBusy(type);
     try {
       if (on) await consentsApi.grant([type]);
@@ -50,7 +54,7 @@ export default function MyConsents() {
       <div className="space-y-2">
         {/* Необязательные согласия касаются данных детей — актуальны только для родителя */}
         {(role === 'parent' ? OPTIONAL : []).map((t) => {
-          const on = data.active[t as 'cross_border' | 'ai_screening'];
+          const on = data.active[t as keyof ConsentStatus['active']];
           return (
             <div key={t} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 px-3 py-2.5">
               <div className="min-w-0">

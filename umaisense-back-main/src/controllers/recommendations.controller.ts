@@ -145,17 +145,23 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
       const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
       const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary, scrub);
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 1000,
-      });
-
-      const raw = (completion.choices[0]?.message?.content ?? '').trim();
+      // Ошибка ИИ (неверный ключ, лимит, сбой) не должна ломать страницу:
+      // пишем причину в лог и отдаём общие рекомендации
+      let raw = '';
+      try {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          max_tokens: 1000,
+        });
+        raw = (completion.choices[0]?.message?.content ?? '').trim();
+      } catch (aiErr: any) {
+        console.error('[AI] OpenAI request failed — using general recommendations:', aiErr?.status, aiErr?.code ?? aiErr?.message);
+      }
       // Strip possible markdown code fences just in case
       const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      try {
+      if (raw) try {
         const parsed = JSON.parse(cleaned);
         if (parsed.calmingTechniques && parsed.activitiesForToday
             && parsed.communicationTips && parsed.attentionPoints) {

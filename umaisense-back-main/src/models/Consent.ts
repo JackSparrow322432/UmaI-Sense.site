@@ -6,11 +6,12 @@ import { Schema, model, Types, Document } from 'mongoose';
  * third_party_transfer — передача третьим лицам из перечня в Политике (обязательно)
  * cross_border         — трансграничная передача ОБЕЗЛИЧЕННЫХ данных внешнему ИИ (необязательно)
  * ai_screening         — ИИ-скрининг профиля ребёнка (необязательно, запрашивается при первом запуске)
+ * documents_ai         — передача обезличенного ТЕКСТА документов (PDF/DOCX) внешнему ИИ для скрининга (необязательно)
  */
-export const CONSENT_TYPES = ['account', 'child_data', 'third_party_transfer', 'cross_border', 'ai_screening'] as const;
+export const CONSENT_TYPES = ['account', 'child_data', 'third_party_transfer', 'cross_border', 'ai_screening', 'documents_ai'] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
 /** Необязательные согласия — их можно отозвать без удаления аккаунта */
-export const OPTIONAL_CONSENTS: ConsentType[] = ['cross_border', 'ai_screening'];
+export const OPTIONAL_CONSENTS: ConsentType[] = ['cross_border', 'ai_screening', 'documents_ai'];
 
 /**
  * Согласие на сбор и обработку персональных данных (Закон РК № 94-V).

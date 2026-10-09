@@ -13,7 +13,7 @@ import { CONSENT_VERSION, recordConsent, missingRequiredConsents, hasActiveConse
 // GET /api/consents — мои согласия + что требуется подтвердить
 export const getMyConsents = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const [list, missing, crossBorder, aiScreening] = await Promise.all([
+    const [list, missing, crossBorder, aiScreening, documentsAi] = await Promise.all([
       Consent.find({ userId: req.user!.id })
         .sort({ createdAt: -1 })
         .select('type version childId createdAt withdrawnAt')
@@ -23,11 +23,12 @@ export const getMyConsents = async (req: AuthRequest, res: Response): Promise<vo
       req.user!.role === 'admin' ? Promise.resolve([]) : missingRequiredConsents(req.user!.id),
       hasActiveConsent(req.user!.id, 'cross_border'),
       hasActiveConsent(req.user!.id, 'ai_screening'),
+      hasActiveConsent(req.user!.id, 'documents_ai'),
     ]);
     res.json({
       currentVersion: CONSENT_VERSION,
       missingRequired: missing,
-      active: { cross_border: crossBorder, ai_screening: aiScreening },
+      active: { cross_border: crossBorder, ai_screening: aiScreening, documents_ai: documentsAi },
       consents: list,
     });
   } catch {

@@ -23,8 +23,14 @@ const loadOptional = (name: string): any => {
   }
 };
 
+// Буквальные require (а не через переменную): иначе сборщик Vercel не включит пакет в функцию
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const loadPdfParse = (): any => { try { return require('pdf-parse'); } catch { return null; } };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const loadMammoth = (): any => { try { return require('mammoth'); } catch { return null; } };
+
 const extractPdf = async (buf: Buffer): Promise<string> => {
-  const mod = loadOptional('pdf-parse');
+  const mod = loadPdfParse();
   if (!mod?.PDFParse) throw new Error('pdf-parse not installed');
   const parser = new mod.PDFParse({ data: buf });
   try {
@@ -37,7 +43,7 @@ const extractPdf = async (buf: Buffer): Promise<string> => {
 };
 
 const extractDocx = async (buf: Buffer): Promise<string> => {
-  const mammoth = loadOptional('mammoth');
+  const mammoth = loadMammoth();
   if (!mammoth) throw new Error('mammoth not installed');
   const r = await mammoth.extractRawText({ buffer: buf });
   return String(r.value ?? '');
