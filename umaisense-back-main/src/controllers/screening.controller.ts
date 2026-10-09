@@ -13,7 +13,7 @@ import { makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU,
 import { hasActiveConsent, CONSENT_VERSION } from '../utils/consent';
 import { logAccess } from '../utils/audit';
 import { extractDocumentText } from '../utils/documentText';
-import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage } from '../utils/aiClient';
+import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage, isProviderInKz } from '../utils/aiClient';
 import { documentInsightLines } from '../utils/documentAi';
 
 /**
@@ -41,7 +41,7 @@ import { documentInsightLines } from '../utils/documentAi';
  */
 type DocsMode = 'none' | 'types_only' | 'text';
 const docsModeFor = (p: Provider): DocsMode =>
-  p === 'local' ? 'text' : p === 'openai' ? (docsExternalEnabled() ? 'text' : 'types_only') : 'none';
+  p === 'off' ? 'none' : isProviderInKz(p) ? 'text' : docsExternalEnabled() ? 'text' : 'types_only';
 
 /** Согласия родителя, без которых скрининг не запускается */
 const requiredConsents = async (parentId: Types.ObjectId, p: Provider): Promise<string[]> => {
@@ -52,8 +52,9 @@ const requiredConsents = async (parentId: Types.ObjectId, p: Provider): Promise<
   ]);
   return [
     ...(aiConsent ? [] : ['ai_screening']),
-    ...(p === 'openai' && !crossBorder ? ['cross_border'] : []),
-    ...(p === 'openai' && docsExternalEnabled() && !docsAi ? ['documents_ai'] : []),
+    // Согласие на трансграничную передачу — только если ИИ обрабатывает данные вне Казахстана
+    ...(p !== 'off' && !isProviderInKz(p) && !crossBorder ? ['cross_border'] : []),
+    ...(p !== 'off' && !isProviderInKz(p) && docsExternalEnabled() && !docsAi ? ['documents_ai'] : []),
   ];
 };
 
@@ -297,7 +298,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
       for (const d of docs) {
         if (total >= MAX_DOC_CHARS_TOTAL) { documentsSkipped++; continue; }
         // Во внешний ИИ фото документов не передаём: имя и ИИН на изображении не скрыть
-        if (provider !== 'local' && String(d.mimeType).startsWith('image/')) { documentsSkipped++; continue; }
+        if (!isProviderInKz(provider) && String(d.mimeType).startsWith('image/')) { documentsSkipped++; continue; }
         try {
           const ex = await extractDocumentText(d as any);
           if (!ex) { documentsSkipped++; continue; }

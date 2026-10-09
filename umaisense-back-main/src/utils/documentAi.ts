@@ -3,7 +3,7 @@ import convertHeic from 'heic-convert';
 import { Types } from 'mongoose';
 import DocumentModel from '../models/Document';
 import { DocumentAiResult } from '../types';
-import { getClient, Provider, providerName, docsExternalEnabled, docsImagesExternalEnabled, parseJson, strArr } from './aiClient';
+import { getClient, Provider, providerName, docsExternalEnabled, docsImagesExternalEnabled, parseJson, strArr, isProviderInKz } from './aiClient';
 import { extractDocumentText } from './documentText';
 import { downloadStored, isProviderAvailable, StorageProvider } from './documentStorage';
 import { hasActiveConsent } from './consent';
@@ -70,17 +70,18 @@ export const documentAiMissingConsents = async (parentId: Types.ObjectId | strin
     hasActiveConsent(parentId, 'documents_ai'),
     hasActiveConsent(parentId, 'cross_border'),
   ]);
-  return [...(docsAi ? [] : ['documents_ai']), ...(p === 'openai' && !crossBorder ? ['cross_border'] : [])];
+  return [...(docsAi ? [] : ['documents_ai']), ...(p !== 'off' && !isProviderInKz(p) && !crossBorder ? ['cross_border'] : [])];
 };
 
 /** Готова ли расшифровка документов на этом сервере (без учёта согласий) */
 export const documentAiAvailability = (): { enabled: boolean; images: boolean; reason?: string } => {
   const p = providerName();
   if (p === 'off' || !getClient(p)) return { enabled: false, images: false, reason: 'ИИ не настроен на сервере' };
-  if (p === 'openai' && !docsExternalEnabled()) {
+  if (!isProviderInKz(p) && !docsExternalEnabled()) {
     return { enabled: false, images: false, reason: 'Расшифровка документов внешним ИИ не включена (AI_SCREENING_DOCS_EXTERNAL)' };
   }
-  return { enabled: true, images: p === 'local' || docsImagesExternalEnabled() };
+  // В РК (своя модель, YandexGPT KZ) фото читаются через OCR; во внешний ИИ — только по флагу
+  return { enabled: true, images: isProviderInKz(p) || docsImagesExternalEnabled() };
 };
 
 const imageDataUrl = async (buf: Buffer, mimeType: string): Promise<string> => {

@@ -7,7 +7,7 @@ const documentSchema = new Schema<IDocument>(
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     // Ключ файла в закрытом S3-бакете (новые документы)
     storageKey: { type: String },
-    // Где лежит файл: 's3' (хранилище в РК) или 'cloudinary' (временно, закрытые файлы)
+    // Где лежит файл: 's3' (Yandex Object Storage KZ). 'cloudinary' — старые записи до переноса (migrate:files)
     storageProvider: { type: String, enum: ['s3', 'cloudinary'] },
     // Старые документы до переезда (Cloudinary). Скрипт migrate:files переносит их в S3.
     fileUrl: { type: String },

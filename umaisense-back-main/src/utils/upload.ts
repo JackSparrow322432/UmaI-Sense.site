@@ -2,30 +2,17 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { v2 as cloudinary } from 'cloudinary';
 import { isPublicS3Enabled, putPublicObject } from './storage';
 import { IMAGE_TYPES, MAX_IMAGE_SIZE, IMAGE_FORMATS_LABEL, ImagePurpose, matchesSignature } from './fileTypes';
 import { processImage, ImageTooSmallError, ProcessedImage } from './imageProcessing';
 
-// ─── Cloudinary config ────────────────────────────────────────────────────────
-
-const cloudinaryEnabled =
-  !!process.env.CLOUDINARY_CLOUD_NAME &&
-  !!process.env.CLOUDINARY_API_KEY &&
-  !!process.env.CLOUDINARY_API_SECRET;
-
-// Приоритет: S3 в Казахстане → Cloudinary (только до переезда, хранит за рубежом) → локальный диск (разработка)
+// ─── Хранилище картинок ───────────────────────────────────────────────────────
+// Только Yandex Object Storage в Казахстане (публичный бакет). Локальная папка uploads —
+// исключительно для разработки: в production без S3 сервер не стартует (utils/env.ts).
 if (isPublicS3Enabled()) {
   console.log('[Storage] Images → S3 public bucket');
-} else if (cloudinaryEnabled) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key:    process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-  console.log('[Cloudinary] Image upload enabled');
 } else {
-  console.warn('[Cloudinary] Keys not set — falling back to local /uploads');
+  console.warn('[Storage] S3 не настроен — картинки сохраняются в локальную папку uploads (только для разработки)');
 }
 
 // ─── Multer (memory storage — works for both modes) ──────────────────────────
@@ -51,7 +38,7 @@ export const upload = multer({
 // ─── Upload helper ────────────────────────────────────────────────────────────
 
 const uploadDir = path.join(__dirname, '../../uploads');
-if (!cloudinaryEnabled && !isPublicS3Enabled()) {
+if (!isPublicS3Enabled()) {
   try {
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
   } catch (err) {
@@ -76,26 +63,13 @@ export const uploadImage = async (file: Express.Multer.File, purpose: ImagePurpo
     const key = `images/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${img.ext}`;
     return putPublicObject(key, img.buffer, img.mimeType);
   }
-  return cloudinaryEnabled ? uploadToCloudinary(img) : saveLocally(img);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('S3 (Yandex Object Storage KZ) не настроен — загрузка картинок в production невозможна');
+  }
+  return saveLocally(img);
 };
 
 export class InvalidFileError extends Error {}
-
-const uploadToCloudinary = (file: ProcessedImage): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'umaisense',
-        resource_type: 'image',
-        transformation: [{ quality: 'auto', fetch_format: 'auto' }],
-      },
-      (err, result) => {
-        if (err || !result) return reject(err ?? new Error('Cloudinary upload failed'));
-        resolve(result.secure_url);
-      }
-    );
-    stream.end(file.buffer);
-  });
 
 const saveLocally = (file: ProcessedImage): Promise<string> =>
   new Promise((resolve, reject) => {

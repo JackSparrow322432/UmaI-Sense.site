@@ -7,7 +7,7 @@ import Consent, { ConsentType } from '../models/Consent';
  * поднимайте версию — новые согласия будут записываться с ней, а пользователи без согласия
  * текущей редакции увидят окно с просьбой подтвердить обновлённую политику.
  */
-export const CONSENT_VERSION = process.env.CONSENT_VERSION || '2026-10-08';
+export const CONSENT_VERSION = process.env.CONSENT_VERSION || '2026-10-09';
 
 /** Согласия, без которых аккаунтом пользоваться нельзя (проверяются на текущую версию) */
 export const REQUIRED_ACCOUNT_CONSENTS: ConsentType[] = ['account', 'third_party_transfer'];

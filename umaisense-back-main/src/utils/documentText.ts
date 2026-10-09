@@ -23,7 +23,7 @@ const loadOptional = (name: string): any => {
   }
 };
 
-// Буквальные require (а не через переменную): иначе сборщик Vercel не включит пакет в функцию
+// Буквальные require (а не через переменную) — так зависимость видна сборщикам и анализаторам
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const loadPdfParse = (): any => { try { return require('pdf-parse'); } catch { return null; } };
 // eslint-disable-next-line @typescript-eslint/no-require-imports

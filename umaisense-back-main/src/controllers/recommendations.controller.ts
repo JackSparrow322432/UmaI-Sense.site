@@ -1,6 +1,5 @@
 import { Response } from 'express';
 import { Types } from 'mongoose';
-import OpenAI from 'openai';
 import { AuthRequest } from '../types';
 import Recommendation from '../models/Recommendation';
 import Child from '../models/Child';
@@ -12,14 +11,7 @@ import Notification from '../models/Notification';
 import { Scrub, makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU } from '../utils/anonymize';
 import { hasActiveConsent } from '../utils/consent';
 import { documentInsightLines } from '../utils/documentAi';
-
-// ─── OpenAI client (only initialised when key is present) ────────────────────
-
-const getOpenAI = (): OpenAI | null => {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
-  return new OpenAI({ apiKey: key });
-};
+import { providerName, getClient, isProviderInKz } from '../utils/aiClient';
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
@@ -144,8 +136,12 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
     let content = FALLBACK_CONTENT;
     // Данные (даже обезличенные) уходят во внешний ИИ за пределами РК только при согласии
     // родителя на трансграничную передачу (ст. 16 Закона РК № 94-V). Без согласия — общие советы.
-    const crossBorderOk = await hasActiveConsent(req.user!.id, 'cross_border');
-    const openai = crossBorderOk ? getOpenAI() : null;
+    // Провайдер из общих настроек (utils/aiClient.ts). Если ИИ обрабатывает данные вне РК —
+    // нужно согласие на трансграничную передачу (ст. 16 Закона РК № 94-V).
+    const provider = providerName();
+    const crossBorderOk = isProviderInKz(provider) || (await hasActiveConsent(req.user!.id, 'cross_border'));
+    const ai = crossBorderOk ? getClient(provider) : null;
+    const openai = ai?.client ?? null;
 
     if (openai) {
       // Имена для скрытия в свободном тексте: ребёнок, родитель, тренеры
@@ -162,7 +158,7 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
       let raw = '';
       try {
         const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: ai!.model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.7,
           max_tokens: 1000,
@@ -185,7 +181,7 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
     } else if (!crossBorderOk) {
       console.warn('[AI] No cross_border consent — using general recommendations');
     } else {
-      console.warn('[AI] OPENAI_API_KEY not set — using placeholder recommendations');
+      console.warn('[AI] AI provider is off or not configured — using general recommendations');
     }
 
     const recommendation = await Recommendation.create({ childId: child._id, content });

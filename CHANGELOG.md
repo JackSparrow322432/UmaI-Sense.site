@@ -1,3 +1,21 @@
+# CHANGELOG — 2026-10-09: переезд в Yandex Cloud, регион Казахстан
+
+Инструкция — `DEPLOY_YANDEX_CLOUD_KZ.md`. Сами ресурсы не создавались, DNS не менялся, ничего не удалялось.
+
+- **Инфраструктура как код** `infra/yandex-kz/` (OpenTofu/Terraform, провайдер yandex с эндпоинтами `api.yandexcloud.kz` и `storage.yandexcloud.kz`, регион `kz1`): сеть, группы безопасности, ВМ с зашифрованным диском, Managed MongoDB (или MongoDB в контейнере), бакеты `documents` (закрытый, KMS, версии), `public`, `backups`, ключ KMS, сервисные аккаунты с минимальными ролями. Состояние Terraform — в бакете KZ.
+- **Сервер:** `cloud-init.yaml` (Docker, ufw, fail2ban, вход только по ключу), `docker-compose.yml` (nginx + API + certbot), nginx с HTTPS, HSTS, CSP, `/api`, `/media`.
+- **Скрипты:** `bootstrap-state.sh`, `deploy.sh` (сборка на сервере из git), `migrate-from-atlas.sh` (со сверкой количества документов), `migrate-files.sh` (Cloudinary → Object Storage KZ), `backup.sh` (зашифрованные дампы), `verify-locality.sh`.
+- **GitHub Actions:** `ci.yml` (проверка типов и сборка) и `deploy-yandex-kz.yml` (выкладка по кнопке; секретов приложения в GitHub нет).
+- **Код — данные не уходят за пределы РК:**
+  - при старте в production сервер отказывается работать, если база, хранилище, почта или ИИ указывают за пределы Yandex Cloud KZ (`utils/env.ts`); исключения — `LOCALITY_ALLOWED_HOSTS`;
+  - Cloudinary удалён из рабочего кода (остался только для одноразового переноса файлов, как devDependency); загрузки — только Object Storage KZ;
+  - SMTP без значения Gmail по умолчанию, обязательный TLS;
+  - ИИ: провайдеры `off` / `local` / `yandex` / `openai`; в production по умолчанию `off`; OpenAI работает только при `ALLOW_FOREIGN_AI=true` и только с согласием родителя на трансграничную передачу; модель в РК согласия `cross_border` не требует;
+  - CORS: только `CLIENT_URL` и `CORS_ORIGINS`, превью Vercel/Netlify убраны;
+  - удалены `vercel.json`, `api/index.ts`, `netlify.toml` и устаревший план `DEPLOY_FREEDOM_CLOUD.md` + `deploy/`.
+- **Быстрый старт через консоль** (раздел 0 инструкции): `server-setup.sh` вместо Terraform, `env.quickstart.example`, режим запуска по IP без домена (HTTP, для проверки), безопасное чтение `.env` в скриптах, почта при старте больше не обязательна (без неё работает вход по паролю).
+- **Политика:** хостинг — Yandex Cloud, регион Казахстан; редакция `2026-10-09` (пользователи увидят окно с обновлённой политикой).
+
 # CHANGELOG — 2026-10-08
 
 ## Задача 0. Аудит и исправления безопасности

@@ -1,4 +1,4 @@
-# UmaiSense API — образ для серверов в РК (Freedom Cloud и др.)
+# UmaiSense API — образ для Yandex Cloud, регион Казахстан
 # Сборка:  docker build -t umaisense-api .
 # Запуск:  docker run --env-file .env -p 5000:5000 umaisense-api
 

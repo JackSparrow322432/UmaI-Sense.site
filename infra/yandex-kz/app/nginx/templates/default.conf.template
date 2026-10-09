@@ -1,0 +1,82 @@
+# Шаблон nginx (envsubst подставляет ${DOMAIN} и ${PUBLIC_BUCKET} при старте контейнера).
+# Пока нет сертификата, используйте nginx/bootstrap-http.conf (scripts/deploy.sh делает это сам).
+
+server_tokens off;
+client_max_body_size 25m;
+
+gzip on;
+gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+gzip_min_length 1024;
+
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    # Браузер обращается только к нашему домену и к хранилищу Yandex Cloud KZ (прямая загрузка документов)
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://storage.yandexcloud.kz https://*.storage.yandexcloud.kz; connect-src 'self' https://storage.yandexcloud.kz https://*.storage.yandexcloud.kz; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+    # Внимание: add_header внутри location отменяет заголовки выше — кеш задаётся только через expires
+    root /usr/share/nginx/html;
+
+    # API
+    location /api/ {
+        proxy_pass http://api:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+
+    # Публичные файлы (аватары и т.п.) из бакета ${PUBLIC_BUCKET} — через наш домен
+    location /media/ {
+        resolver 77.88.8.8 77.88.8.1 valid=300s ipv6=off;
+        set $s3 storage.yandexcloud.kz;
+        rewrite ^/media/(.*)$ /${PUBLIC_BUCKET}/$1 break;
+        proxy_pass https://$s3;
+        proxy_set_header Host $s3;
+        proxy_ssl_server_name on;
+        proxy_hide_header Set-Cookie;
+        proxy_intercept_errors on;
+        expires 7d;
+    }
+
+    # Сборка Vite: хэшированные файлы кешируются надолго
+    location /assets/ {
+        expires 1y;
+        try_files $uri =404;
+    }
+
+    # SPA
+    location / {
+        expires -1;
+        try_files $uri $uri/ /index.html;
+    }
+}

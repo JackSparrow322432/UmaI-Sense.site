@@ -44,7 +44,7 @@ const isDevMode = () => process.env.NODE_ENV === 'development' || process.env.NO
 const deliverOtp = async (email: string, code: string, label: string) => {
   if (!isDevMode()) {
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      throw new Error('SMTP_USER / SMTP_PASS не заданы — письмо с кодом отправить нельзя (проверьте переменные окружения этого окружения Vercel)');
+      throw new Error('SMTP_USER / SMTP_PASS не заданы — письмо с кодом отправить нельзя (проверьте /opt/umaisense/.env на сервере)');
     }
     await sendOtpEmail(email, code);
   } else {

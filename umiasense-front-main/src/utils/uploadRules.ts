@@ -79,7 +79,7 @@ export const UPLOAD_RULES: Record<UploadKind, UploadRule> = {
     },
     formatsLabel: 'PDF, DOC, DOCX, JPG, PNG, WebP, HEIC',
     maxBytes: 20 * MB,
-    hint: 'Форматы: PDF, DOC, DOCX, JPG, PNG, WebP, HEIC · до 20 МБ (пока сервис на Vercel — до 10 МБ) · фото и сканы документов — от 1200 px по длинной стороне, текст должен читаться',
+    hint: 'Форматы: PDF, DOC, DOCX, JPG, PNG, WebP, HEIC · до 20 МБ · фото и сканы документов — от 1200 px по длинной стороне, текст должен читаться',
     resolution: 'фото и сканы — от 1200 px по длинной стороне, текст должен читаться. Для ИИ-скрининга лучше PDF',
   },
 };

@@ -20,7 +20,7 @@ import { formatSlots, todayStr } from './schedule';
 /**
  * PDF-отчёт по профилю ребёнка для администратора.
  * Шрифт DejaVu Sans встроен в отчёт (кириллица; стандартные шрифты PDF её не поддерживают).
- * Файлы шрифтов лежат в assets/fonts и включены в функцию Vercel через vercel.json → includeFiles.
+ * Файлы шрифтов лежат в assets/fonts и копируются в Docker-образ (Dockerfile → COPY assets).
  */
 
 const FONT_DIR = path.join(__dirname, '../../assets/fonts');

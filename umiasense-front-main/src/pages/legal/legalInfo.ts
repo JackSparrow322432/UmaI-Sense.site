@@ -7,7 +7,7 @@
  * и переменная окружения CONSENT_VERSION) — пользователи увидят окно с обновлённой политикой.
  */
 
-export const LEGAL_VERSION = '2026-10-08';
+export const LEGAL_VERSION = '2026-10-09';
 
 export const OPERATOR = {
   name: 'ТОО «UmaiSense»',
@@ -18,7 +18,7 @@ export const OPERATOR = {
 };
 
 export const PROVIDERS = {
-  hosting: '{{ЗАПОЛНИТЬ: провайдер серверов и хранилища в РК}}',
+  hosting: 'Yandex Cloud, регион Казахстан ({{ЗАПОЛНИТЬ: юридическое лицо провайдера по договору}})',
   email: '{{ЗАПОЛНИТЬ: сервис отправки писем}}',
   aiExternal: 'OpenAI, L.L.C. (США)',
   aiLocal: '{{ЗАПОЛНИТЬ: провайдер ИИ-модели в РК, если используется}}',

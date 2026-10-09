@@ -1,5 +1,6 @@
 /**
- * Перенос файлов из Cloudinary / локальной папки uploads в S3-хранилище в Казахстане.
+ * Перенос файлов из Cloudinary / локальной папки uploads в Yandex Object Storage (регион Казахстан).
+ * Запуск — один раз при переезде, из контейнера сборки (нужен devDependency `cloudinary`).
  *
  *   npm run migrate:files -- --dry-run     # только показать, что будет перенесено
  *   npm run migrate:files                  # перенести
@@ -27,7 +28,7 @@ import TaskRating from '../models/TaskRating';
 import DiaryEntry from '../models/DiaryEntry';
 import { isS3Enabled, isPublicS3Enabled, putPrivateObject, putPublicObject } from '../utils/storage';
 import { DOCUMENT_TYPES, IMAGE_TYPES, extFor, matchesSignature } from '../utils/fileTypes';
-import { downloadStored, removeStored, isProviderAvailable } from '../utils/documentStorage';
+import { cloudinaryConfigured, downloadFromCloudinary, removeFromCloudinary } from './cloudinaryLegacy';
 
 const DRY = process.argv.includes('--dry-run');
 const PUBLIC_PREFIX = (process.env.S3_PUBLIC_URL || '').replace(/\/+$/, '');
@@ -119,7 +120,7 @@ const main = async () => {
 
   // 1б. Закрытые документы из Cloudinary (загруженные, пока проект был на Vercel)
   const cldDocs = await DocumentModel.find({ storageProvider: 'cloudinary', status: 'ready' });
-  if (cldDocs.length && !isProviderAvailable('cloudinary')) {
+  if (cldDocs.length && !cloudinaryConfigured()) {
     console.error('Есть документы в Cloudinary, но не заданы CLOUDINARY_* — пропускаю их');
   } else {
     for (const doc of cldDocs) {
@@ -127,14 +128,14 @@ const main = async () => {
       if (DRY) continue;
       try {
         const oldKey = doc.storageKey as string;
-        const buffer = await downloadStored('cloudinary', oldKey);
+        const buffer = await downloadFromCloudinary(oldKey);
         const key = `documents/${doc.childId}/${randomUUID()}.${extFor(DOCUMENT_TYPES, doc.mimeType)}`;
         await putPrivateObject(key, buffer, doc.mimeType);
         doc.storageKey = key;
         doc.storageProvider = 's3';
         doc.size = buffer.length;
         await doc.save();
-        await removeStored('cloudinary', oldKey).catch(() => {});
+        await removeFromCloudinary(oldKey).catch(() => {});
         stats.documents++;
       } catch (err) {
         stats.failed++;
