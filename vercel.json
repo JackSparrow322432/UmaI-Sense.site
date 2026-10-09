@@ -14,7 +14,8 @@
   ],
   "functions": {
     "api/index.ts": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "umaisense-back-main/assets/**"
     }
   }
 }

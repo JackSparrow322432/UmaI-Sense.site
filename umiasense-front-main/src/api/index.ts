@@ -116,6 +116,9 @@ export const adminApi = {
     diary: DiaryEntry[];
     stats: { totalEmotions: number; totalActivities: number; totalDiary: number };
   }>(`/admin/children/${childId}`),
+  // PDF-отчёт по профилю ребёнка (скачивание файлом)
+  getChildReport: (childId: string) =>
+    api.get<Blob>(`/admin/children/${childId}/report.pdf`, { responseType: 'blob', timeout: 60_000 }),
   getChildAudit: (childId: string) =>
     api.get<(AccessLogEntry & { ip?: string; userId?: { _id: string; name: string; email?: string; role: string } | null })[]>(
       `/admin/children/${childId}/audit`

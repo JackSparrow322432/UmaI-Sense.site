@@ -103,6 +103,29 @@ export default function AdminChildDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [audit,      setAudit]      = useState<Awaited<ReturnType<typeof adminApi.getChildAudit>>['data']>([]);
   const [showAudit,  setShowAudit]  = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  // Скачивание PDF-отчёта: запрос с токеном, затем сохранение файла через временную ссылку
+  const downloadReport = async () => {
+    if (!childId || !child) return;
+    setDownloading(true);
+    try {
+      const { data, headers } = await adminApi.getChildReport(childId);
+      const cd = String(headers['content-disposition'] ?? '');
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+      const fileName = m ? decodeURIComponent(m[1]) : `UmaiSense_отчёт_${child.lastName ?? ''}_${child.name}.pdf`;
+      const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      toast.success('Отчёт скачан');
+    } catch {
+      toast.error('Не удалось сформировать отчёт');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     if (!childId) return;
@@ -142,7 +165,18 @@ export default function AdminChildDetailPage() {
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <h1 className="text-lg font-bold text-gray-900">Профиль ребёнка</h1>
+        <h1 className="text-lg font-bold text-gray-900 flex-1">Профиль ребёнка</h1>
+        <button
+          type="button"
+          onClick={downloadReport}
+          disabled={downloading}
+          className="flex items-center gap-2 bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-60 flex-shrink-0"
+        >
+          {downloading
+            ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+          {downloading ? 'Формируем…' : 'Скачать PDF-отчёт'}
+        </button>
       </div>
 
       {/* Child card */}

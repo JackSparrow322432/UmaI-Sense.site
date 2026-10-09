@@ -9,7 +9,8 @@ export type AuditAction =
   | 'document.upload' | 'document.view' | 'document.delete'
   | 'child.view' | 'child.access_granted'
   | 'admin.grant' | 'admin.revoke'
-  | 'screening.run' | 'screening.view';
+  | 'screening.run' | 'screening.view'
+  | 'report.download';
 
 export interface IAuditLog extends Document {
   userId?: Types.ObjectId;

@@ -292,7 +292,7 @@ export interface Session {
 
 export interface AccessLogEntry {
   _id: string;
-  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view';
+  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view' | 'report.download';
   userId?: Pick<User, '_id' | 'name' | 'role'> | null;
   role?: UserRole;
   createdAt: string;
