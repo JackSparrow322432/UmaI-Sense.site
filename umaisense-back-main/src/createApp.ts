@@ -21,6 +21,7 @@ import articlesRoutes from './routes/articles.routes';
 import documentsRoutes from './routes/documents.routes';
 import tasksRoutes from './routes/tasks.routes';
 import enrollmentRoutes from './routes/enrollment.routes';
+import consentsRoutes from './routes/consents.routes';
 import { seedMilestones } from './utils/seedMilestones';
 import { seedAdmin } from './utils/seedAdmin';
 import { createIndexes } from './utils/createIndexes';
@@ -87,15 +88,14 @@ export const createApp = () => {
   app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
   app.disable('x-powered-by');
 
+  // Сайт и API работают с одного домена (app.umaisense.kz), поэтому CORS нужен только
+  // для дополнительных доменов (CORS_ORIGINS) и локальной разработки.
+  const isProd = process.env.NODE_ENV === 'production';
   const allowedOrigins = [
-    'https://umai-sense.netlify.app',
     ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : []),
     ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : []),
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:5175',
+    ...(isProd ? [] : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175']),
   ];
-  const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS !== 'false';
 
   app.use(
     helmet({
@@ -107,10 +107,7 @@ export const createApp = () => {
   app.use(
     cors({
       origin: (origin, callback) => {
-        let isAllowed = !origin || allowedOrigins.includes(origin);
-        if (!isAllowed && allowVercelPreviews && origin) {
-          try { isAllowed = /\.vercel\.app$/.test(new URL(origin).hostname); } catch { isAllowed = false; }
-        }
+        const isAllowed = !origin || allowedOrigins.includes(origin);
         if (isAllowed) callback(null, true);
         else callback(new Error('Not allowed by CORS'));
       },
@@ -182,6 +179,7 @@ export const createApp = () => {
   app.use('/api/documents', documentsRoutes);
   app.use('/api/tasks', tasksRoutes);
   app.use('/api/enrollment', enrollmentRoutes);
+  app.use('/api/consents', consentsRoutes);
 
   app.use('/api', (_req, res) => res.status(404).json({ message: 'Not found' }));
 

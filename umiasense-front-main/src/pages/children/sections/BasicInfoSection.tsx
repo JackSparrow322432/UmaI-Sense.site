@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { childrenApi, uploadApi } from '../../../api';
 import type { Child } from '../../../types';
@@ -6,6 +6,8 @@ import AdaptiveSkatingFields, {
   emptySkating, validateSkating, skatingPayload, type SkatingForm,
 } from '../../../components/enrollment/AdaptiveSkatingFields';
 import { isValidIin, iinMatchesBirthDate, isChildReadyForEnrollment } from '../../../utils/enrollment';
+import FileDropzone from '../../../components/common/FileDropzone';
+import { UPLOAD_RULES } from '../../../utils/uploadRules';
 
 const COMMUNICATION_OPTIONS = [
   'Вербальная речь', 'ААС-устройство', 'PECS карточки', 'Жестовый язык', 'Другое',
@@ -36,7 +38,6 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     name: child.name,
     lastName: child.lastName || '',
@@ -50,15 +51,13 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
   const [skating, setSkating] = useState<SkatingForm>(emptySkating(child));
   const set = (key: keyof typeof form, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
-  const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handlePhoto = async (file: File) => {
     setUploading(true);
     try {
-      const { data } = await uploadApi.image(file);
+      const { data } = await uploadApi.image(file, 'avatar');
       set('photo', data.url);
-    } catch {
-      toast.error('Ошибка загрузки фото');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Ошибка загрузки фото');
     } finally {
       setUploading(false);
     }
@@ -109,25 +108,15 @@ export default function BasicInfoSection({ child, canEdit, onRefresh }: Props) {
   if (editing) {
     return (
       <div className="space-y-5">
-        {/* Photo */}
-        <div className="flex justify-center">
-          <div className="relative">
-            <div
-              onClick={() => fileRef.current?.click()}
-              className="w-24 h-24 rounded-full bg-[#FFF3EA] flex items-center justify-center cursor-pointer hover:opacity-80 transition overflow-hidden border-2 border-dashed border-[#E07628]/40"
-            >
-              {form.photo ? (
-                <img src={form.photo} className="w-full h-full object-cover" alt="" />
-              ) : (
-                <span className="text-3xl">📷</span>
-              )}
-            </div>
-            {uploading && (
-              <div className="absolute inset-0 rounded-full bg-white/70 flex items-center justify-center text-xs text-[#E07628]">...</div>
-            )}
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhoto} />
-          </div>
-        </div>
+        {/* Photo — рамка с подсказкой о форматах и разрешении */}
+        <FileDropzone
+          rule={UPLOAD_RULES.avatar}
+          variant="avatar"
+          title="Фото ребёнка"
+          preview={form.photo}
+          uploading={uploading}
+          onFile={handlePhoto}
+        />
 
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Имя</label>

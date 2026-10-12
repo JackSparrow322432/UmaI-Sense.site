@@ -1,0 +1,4 @@
+# tofu init -backend-config=backend.hcl   (файл в .gitignore)
+bucket     = "umaisense-tfstate-<случайный суффикс>"
+access_key = "<статический ключ SA terraform>"
+secret_key = "<секрет>"

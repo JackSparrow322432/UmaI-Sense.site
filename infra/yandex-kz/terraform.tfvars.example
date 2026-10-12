@@ -1,0 +1,20 @@
+# Скопируйте в terraform.tfvars (файл в .gitignore — в git не попадает)
+cloud_id  = "<ID облака Казахстан>"
+folder_id = "<ID каталога umaisense>"
+
+sa_key_file              = "tf-sa-key.json"
+storage_admin_access_key = "<статический ключ SA terraform>"
+storage_admin_secret_key = "<секрет>"
+
+domain         = "app.umaisense.kz"
+ssh_public_key = "ssh-ed25519 AAAA... you@laptop"
+admin_ip_cidrs = ["<ваш IP>/32"]
+
+# Старт: 2 vCPU / 4 ГБ. Для экономии можно vm_core_fraction = 50
+vm_cores         = 2
+vm_memory_gb     = 4
+vm_core_fraction = 100
+
+use_managed_mongodb   = true
+mongo_password        = "<openssl rand -base64 32 | tr -d '/+='>"
+mongo_resource_preset = "s3-c2-m8"

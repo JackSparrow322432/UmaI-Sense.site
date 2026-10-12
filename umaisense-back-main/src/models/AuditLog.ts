@@ -8,7 +8,10 @@ import { Schema, model, Types, Document } from 'mongoose';
 export type AuditAction =
   | 'document.upload' | 'document.view' | 'document.delete'
   | 'child.view' | 'child.access_granted'
-  | 'admin.grant' | 'admin.revoke';
+  | 'admin.grant' | 'admin.revoke'
+  | 'screening.run' | 'screening.view'
+  | 'report.download'
+  | 'document.ai_explain';
 
 export interface IAuditLog extends Document {
   userId?: Types.ObjectId;

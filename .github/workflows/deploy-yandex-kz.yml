@@ -1,0 +1,37 @@
+# Выкладка на сервер в Yandex Cloud KZ — по кнопке (Actions → Deploy → Run workflow).
+#
+# В GitHub НЕТ секретов приложения (база, ключи хранилища, JWT, SMTP, ИИ) — они только в
+# /opt/umaisense/.env на сервере. GitHub хранит лишь:
+#   DEPLOY_HOST        — IP сервера (tofu output web_ip)
+#   DEPLOY_SSH_KEY     — ОТДЕЛЬНЫЙ ключ, которому на сервере разрешена только одна команда:
+#                        в ~umaisense/.ssh/authorized_keys строка вида
+#                        command="/opt/umaisense/src/infra/yandex-kz/scripts/deploy.sh main",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA... github-deploy
+#   DEPLOY_KNOWN_HOSTS — вывод `ssh-keyscan <IP>` (защита от подмены сервера)
+# Сборка выполняется на самом сервере из git — код и данные никуда больше не передаются.
+name: Deploy (Yandex Cloud KZ)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run deploy.sh on server
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=yes umaisense@"$HOST" deploy

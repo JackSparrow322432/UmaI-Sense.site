@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { articlesApi, uploadApi } from '../../api';
+import FileDropzone from '../../components/common/FileDropzone';
+import { UPLOAD_RULES } from '../../utils/uploadRules';
 
 export default function AdminArticleFormPage() {
   const { id } = useParams<{ id?: string }>();
@@ -31,14 +33,12 @@ export default function AdminArticleFormPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleImageUpload = async (file: File) => {
     setUploading(true);
     try {
-      const { data } = await uploadApi.image(file);
+      const { data } = await uploadApi.image(file, 'cover');
       setCoverImage(data.url);
-    } catch { toast.error('Ошибка загрузки изображения'); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Ошибка загрузки изображения'); }
     finally { setUploading(false); }
   };
 
@@ -130,19 +130,12 @@ export default function AdminArticleFormPage() {
                 </button>
               </div>
             ) : (
-              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-[#E07628] hover:bg-gray-50 transition">
-                {uploading ? (
-                  <div className="w-6 h-6 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                    <span className="text-xs text-gray-400 mt-2">Нажмите чтобы загрузить изображение</span>
-                  </>
-                )}
-                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleImageUpload} disabled={uploading} />
-              </label>
+              <FileDropzone
+                rule={UPLOAD_RULES.cover}
+                title="Загрузить обложка статьи"
+                uploading={uploading}
+                onFile={handleImageUpload}
+              />
             )}
           </div>
 

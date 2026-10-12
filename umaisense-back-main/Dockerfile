@@ -1,4 +1,4 @@
-# UmaiSense API — образ для серверов в РК (Freedom Cloud и др.)
+# UmaiSense API — образ для Yandex Cloud, регион Казахстан
 # Сборка:  docker build -t umaisense-api .
 # Запуск:  docker run --env-file .env -p 5000:5000 umaisense-api
 
@@ -16,6 +16,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/dist ./dist
+# Шрифты с кириллицей для PDF-отчётов
+COPY assets ./assets
 # Процесс работает не от root
 USER node
 EXPOSE 5000

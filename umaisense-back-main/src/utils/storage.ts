@@ -117,3 +117,11 @@ export const putPublicObject = async (key: string, body: Buffer, contentType: st
   }));
   return `${(process.env.S3_PUBLIC_URL as string).replace(/\/+$/, '')}/${key}`;
 };
+
+/** Скачать файл из закрытого бакета на сервер целиком (для ИИ-расшифровки и переноса) */
+export const getPrivateObject = async (key: string): Promise<Buffer> => {
+  const r = await s3().send(new GetObjectCommand({ Bucket: privateBucket(), Key: key }));
+  const chunks: Buffer[] = [];
+  for await (const chunk of r.Body as AsyncIterable<Uint8Array>) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+};

@@ -1,0 +1,80 @@
+#cloud-config
+# Первичная настройка ВМ umaisense-web (Ubuntu 24.04, Yandex Cloud kz1).
+# Выполняется один раз при создании ВМ; дальше сервер обновляется через scripts/deploy.sh.
+
+users:
+  - name: umaisense
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+ssh_pwauth: false
+disable_root: true
+package_update: true
+package_upgrade: true
+timezone: Asia/Almaty
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - unattended-upgrades
+  - fail2ban
+  - ufw
+  - jq
+  - age
+  - conntrack
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/90-umaisense.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      MaxAuthTries 3
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  - path: /etc/fail2ban/jail.d/sshd.local
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 5
+      bantime = 1h
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "5" },
+        "live-restore": true
+      }
+
+runcmd:
+  # Docker из официального репозитория (download.docker.com — только установка пакетов, данные туда не уходят)
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - usermod -aG docker umaisense
+  - systemctl enable --now docker
+  # Межсетевой экран на самой ВМ (дополнительно к группе безопасности)
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+  - systemctl restart ssh
+  - systemctl enable --now fail2ban
+  # Каталог приложения и сертификат Yandex Cloud для TLS-подключения к Managed MongoDB
+  - mkdir -p /opt/umaisense/certs /opt/umaisense/certbot/www /opt/umaisense/certbot/conf /opt/umaisense/frontend
+  # Публичный корневой сертификат Yandex Cloud (скачивается только файл сертификата, данные не передаются)
+  - curl -fsSL https://storage.yandexcloud.kz/cloud-certs/CA.pem -o /opt/umaisense/certs/root.crt || curl -fsSL https://storage.yandexcloud.net/cloud-certs/CA.pem -o /opt/umaisense/certs/root.crt
+  - chown -R umaisense:umaisense /opt/umaisense
+  - chmod 700 /opt/umaisense

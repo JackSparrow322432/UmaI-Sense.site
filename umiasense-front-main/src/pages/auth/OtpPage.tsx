@@ -16,14 +16,15 @@ export default function OtpPage() {
   const { state } = useLocation() as { state: { email: string; role: string } | null };
   const navigate = useNavigate();
 
-  if (!state?.email) return <Navigate to="/register" replace />;
-
   useEffect(() => {
     intervalRef.current = setInterval(() => {
       setCountdown((prev) => { if (prev <= 1) { clearInterval(intervalRef.current!); return 0; } return prev - 1; });
     }, 1000);
     return () => clearInterval(intervalRef.current!);
   }, []);
+
+  // Ранний выход — только после всех хуков (rules-of-hooks)
+  if (!state?.email) return <Navigate to="/register" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

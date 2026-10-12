@@ -19,6 +19,11 @@ const HEIC: Kind = {
   ext: 'heic', label: 'HEIC',
   check: (b) => ascii(b, 'ftyp', 4) && ['heic', 'heix', 'mif1', 'msf1', 'heif'].includes(b.subarray(8, 12).toString('latin1')),
 };
+// AVIF: контейнер ISO-BMFF, бренд avif/avis
+const AVIF: Kind = {
+  ext: 'avif', label: 'AVIF',
+  check: (b) => ascii(b, 'ftyp', 4) && ['avif', 'avis'].includes(b.subarray(8, 12).toString('latin1')),
+};
 const PDF: Kind = { ext: 'pdf', label: 'PDF', check: (b) => ascii(b, '%PDF-') };
 // .docx — это ZIP-архив
 const DOCX: Kind = { ext: 'docx', label: 'Word', check: (b) => starts(b, [0x50, 0x4b, 0x03, 0x04]) };
@@ -32,17 +37,40 @@ export const DOCUMENT_TYPES: Record<string, Kind> = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': DOCX,
   'image/jpeg': JPEG,
   'image/png': PNG,
+  'image/webp': WEBP,
   'image/heic': HEIC,
   'image/heif': HEIC,
 };
 
-/** Картинки интерфейса. SVG запрещён — в нём может быть исполняемый скрипт. */
+/**
+ * Картинки интерфейса (фото профиля, фото ребёнка, обложки, выполненные задания).
+ * HEIC/HEIF (фото iPhone) и AVIF конвертируются на сервере — см. utils/imageProcessing.ts.
+ * SVG запрещён — в нём может быть исполняемый скрипт.
+ * Списки синхронизированы с фронтендом: umiasense-front-main/src/utils/uploadRules.ts
+ */
 export const IMAGE_TYPES: Record<string, Kind> = {
   'image/jpeg': JPEG,
   'image/png': PNG,
   'image/webp': WEBP,
   'image/gif': GIF,
+  'image/heic': HEIC,
+  'image/heif': HEIC,
+  'image/avif': AVIF,
 };
+
+/** Подсказка для сообщений об ошибке — те же форматы, что в IMAGE_TYPES */
+export const IMAGE_FORMATS_LABEL = 'JPG, PNG, WebP, GIF, HEIC или AVIF';
+
+/**
+ * Требования к размеру изображения в пикселях по назначению.
+ * Минимум проверяется на сервере, максимум — уменьшение (а не отказ).
+ */
+export const IMAGE_PURPOSES = {
+  avatar: { minWidth: 200, minHeight: 200, maxSide: 1024 },
+  cover: { minWidth: 600, minHeight: 315, maxSide: 2048 },
+  submission: { minWidth: 200, minHeight: 200, maxSide: 2048 },
+} as const;
+export type ImagePurpose = keyof typeof IMAGE_PURPOSES;
 
 export const matchesSignature = (types: Record<string, Kind>, mimeType: string, head: Buffer): boolean =>
   !!types[mimeType]?.check(head);

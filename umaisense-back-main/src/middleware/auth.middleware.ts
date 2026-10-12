@@ -7,6 +7,7 @@ import User from '../models/User';
 interface JwtPayload {
   id: string;
   role: 'parent' | 'trainer' | 'admin';
+  iat?: number;
 }
 
 /**
@@ -33,9 +34,14 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
   }
 
   try {
-    const user = await User.findById(decoded.id).select('role').lean();
+    const user = await User.findById(decoded.id).select('role passwordChangedAt').lean();
     if (!user) {
       res.status(401).json({ message: 'User not found' });
+      return;
+    }
+    // Токен выдан до смены пароля — недействителен (украденный токен перестаёт работать после сброса)
+    if (user.passwordChangedAt && decoded.iat && decoded.iat * 1000 < user.passwordChangedAt.getTime() - 1000) {
+      res.status(401).json({ message: 'Session expired' });
       return;
     }
     req.user = { id: decoded.id, role: user.role };

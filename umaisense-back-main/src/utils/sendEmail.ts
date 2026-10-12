@@ -1,9 +1,13 @@
 import nodemailer from 'nodemailer';
 
+// SMTP — только провайдер в Казахстане (почтовый хостинг в РК; Postbox в регионе KZ пока нет).
+// Его адрес указывается в LOCALITY_ALLOWED_HOSTS. Зарубежные сервисы (Gmail, SendGrid…) запрещены проверкой в utils/env.ts.
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
+  // 465 — SMTPS; 587 — STARTTLS (шифрование включается командой сервера)
+  secure: process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465,
+  requireTLS: true,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -35,7 +39,7 @@ export const sendOtpEmail = async (to: string, code: string): Promise<void> => {
 export const sendNotificationEmail = async (to: string, subject: string, html: string): Promise<void> => {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return;
   try {
-    // На Vercel функцию нельзя оставлять ждать SMTP дольше нескольких секунд
+    // Не держим запрос дольше нескольких секунд, если почтовый сервер не отвечает
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error('SMTP timeout')), 5000);

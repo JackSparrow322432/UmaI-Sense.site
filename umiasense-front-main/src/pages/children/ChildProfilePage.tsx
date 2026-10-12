@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { childrenApi } from '../../api';
 import type { Child } from '../../types';
@@ -41,7 +41,12 @@ export default function ChildProfilePage() {
 
   const [child, setChild] = useState<Child | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('basic');
+  // ?tab=sensory — переход к нужному разделу (например, из блока «Каких данных не хватает» ИИ-скрининга)
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = searchParams.get('tab');
+    return t && TABS.some((x) => x.id === t) ? t : 'basic';
+  });
 
   const isParent = user?.role === 'parent';
 

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getUsers, getUserDetail, getChildDetail, getChildAudit, setAdminRole } from '../controllers/admin.controller';
+import { getUsers, getUserDetail, getChildDetail, getChildAudit, setAdminRole, downloadChildReport } from '../controllers/admin.controller';
 import { Types } from 'mongoose';
 import { protect, adminOnly } from '../middleware/auth.middleware';
 
@@ -21,5 +21,6 @@ router.param('id', (_req, res, next, value) => {
 
 router.get('/children/:childId', getChildDetail);
 router.get('/children/:childId/audit', getChildAudit);
+router.get('/children/:childId/report.pdf', downloadChildReport);
 
 export default router;

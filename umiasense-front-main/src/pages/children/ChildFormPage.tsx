@@ -1,11 +1,14 @@
-import { useState, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { childrenApi, uploadApi } from '../../api';
 import AdaptiveSkatingFields, {
   emptySkating, validateSkating, skatingPayload, type SkatingForm,
 } from '../../components/enrollment/AdaptiveSkatingFields';
 import { isValidIin, iinMatchesBirthDate } from '../../utils/enrollment';
+import FileDropzone from '../../components/common/FileDropzone';
+import { UPLOAD_RULES } from '../../utils/uploadRules';
+import ConsentCheckbox from '../../components/legal/ConsentCheckbox';
 
 const COMMUNICATION_OPTIONS = [
   'Вербальная речь', 'ААС-устройство', 'PECS карточки', 'Жестовый язык', 'Другое',
@@ -16,13 +19,6 @@ const inputClass =
 
 const labelClass = 'block text-xs font-medium text-gray-500 mb-1.5';
 
-const CameraIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-    <circle cx="12" cy="13" r="4" />
-  </svg>
-);
-
 const BackIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="15 18 9 12 15 6" />
@@ -31,27 +27,25 @@ const BackIcon = () => (
 
 export default function ChildFormPage() {
   const navigate = useNavigate();
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     name: '', lastName: '', iin: '', dateOfBirth: '', diagnosis: '', communicationMethod: '', photo: '',
   });
   const [skating, setSkating] = useState<SkatingForm>(emptySkating());
   const [consent, setConsent] = useState(false);
+  const [consentThirdParty, setConsentThirdParty] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const set = (key: keyof typeof form, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
-  const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handlePhoto = async (file: File) => {
     setUploading(true);
     try {
-      const { data } = await uploadApi.image(file);
+      const { data } = await uploadApi.image(file, 'avatar');
       set('photo', data.url);
       toast.success('Фото загружено');
-    } catch { toast.error('Ошибка загрузки фото'); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Ошибка загрузки фото'); }
     finally { setUploading(false); }
   };
 
@@ -64,6 +58,7 @@ export default function ChildFormPage() {
     const skatingError = validateSkating(skating);
     if (skatingError) { toast.error(skatingError); return; }
     if (!consent) { toast.error('Нужно согласие на обработку данных ребёнка'); return; }
+    if (!consentThirdParty) { toast.error('Нужно согласие на передачу данных третьим лицам'); return; }
     setSaving(true);
     try {
       const { data } = await childrenApi.create({
@@ -72,6 +67,7 @@ export default function ChildFormPage() {
         iin: form.iin,
         ...skatingPayload(skating),
         consent,
+        consentThirdParty,
         dateOfBirth: form.dateOfBirth,
         diagnosis: form.diagnosis.trim() || undefined,
         communicationMethod: form.communicationMethod || undefined,
@@ -107,26 +103,15 @@ export default function ChildFormPage() {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
 
-          {/* Photo upload */}
-          <div className="flex flex-col items-center gap-2">
-            <div
-              onClick={() => fileRef.current?.click()}
-              className="relative w-20 h-20 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 hover:border-[#E07628] hover:bg-gray-50 flex items-center justify-center cursor-pointer transition overflow-hidden group"
-            >
-              {form.photo ? (
-                <img src={form.photo} className="w-full h-full object-cover" alt="" />
-              ) : (
-                <span className="text-gray-300 group-hover:text-[#E07628] transition"><CameraIcon /></span>
-              )}
-              {uploading && (
-                <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
-                  <div className="w-5 h-5 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-gray-400">Фото профиля (необязательно)</p>
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhoto} />
-          </div>
+          {/* Photo upload — рамка с подсказкой о форматах и разрешении */}
+          <FileDropzone
+            rule={UPLOAD_RULES.avatar}
+            variant="avatar"
+            title="Фото ребёнка (необязательно)"
+            preview={form.photo}
+            uploading={uploading}
+            onFile={handlePhoto}
+          />
 
           <div className="border-t border-gray-100" />
 
@@ -190,15 +175,17 @@ export default function ChildFormPage() {
           <AdaptiveSkatingFields value={skating} onChange={setSkating} />
 
           {/* Согласие законного представителя (Закон РК «О персональных данных и их защите») */}
-          <label className="flex items-start gap-2.5 text-xs text-gray-600 leading-relaxed cursor-pointer">
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[#E07628]" />
-            <span>
+          <div className="space-y-2.5">
+            <ConsentCheckbox checked={consent} onChange={setConsent} required link={{ to: '/privacy', label: 'Политикой конфиденциальности' }}>
               Как законный представитель ребёнка я даю согласие на сбор и обработку его персональных данных,
               включая ИИН и сведения о здоровье (диагноз, медицинские документы), в целях организации занятий,
-              в соответствии с <Link to="/privacy" target="_blank" className="text-[#E07628] underline">Политикой конфиденциальности</Link>.
-              <span className="text-[#E07628]"> *</span>
-            </span>
-          </label>
+              в соответствии с
+            </ConsentCheckbox>
+            <ConsentCheckbox checked={consentThirdParty} onChange={setConsentThirdParty} required link={{ to: '/privacy#third-parties', label: '(перечень получателей)' }}>
+              Я даю согласие на передачу данных ребёнка третьим лицам, указанным в Политике: закреплённым тренерам
+              и специалистам, провайдеру хранения данных, государственным органам в случаях, предусмотренных законом
+            </ConsentCheckbox>
+          </div>
 
           {/* Actions */}
           <div className="flex gap-3 pt-1">
@@ -206,7 +193,7 @@ export default function ChildFormPage() {
               className="flex-1 border border-gray-200 text-gray-500 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50 transition">
               Отмена
             </button>
-            <button type="submit" disabled={saving || uploading || !form.name.trim() || !form.lastName.trim() || !form.dateOfBirth || !isValidIin(form.iin) || !!validateSkating(skating) || !consent}
+            <button type="submit" disabled={saving || uploading || !form.name.trim() || !form.lastName.trim() || !form.dateOfBirth || !isValidIin(form.iin) || !!validateSkating(skating) || !consent || !consentThirdParty}
               className="flex-1 bg-[#E07628] hover:bg-[#C4641A] text-white rounded-xl py-3 text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
               {saving ? 'Сохранение...' : 'Создать профиль'}
             </button>

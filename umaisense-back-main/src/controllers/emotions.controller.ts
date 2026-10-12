@@ -2,9 +2,12 @@ import { Response } from 'express';
 import { AuthRequest } from '../types';
 import Emotion from '../models/Emotion';
 import Child from '../models/Child';
+import { Types } from 'mongoose';
 
 const hasChildAccess = async (childId: string, userId: string): Promise<boolean> => {
-  const child = await Child.findById(childId);
+  // Некорректный id → просто «нет доступа», а не 500 от CastError
+  if (!Types.ObjectId.isValid(childId)) return false;
+  const child = await Child.findById(childId).select('parentId trainers');
   if (!child) return false;
   return (
     child.parentId.toString() === userId ||
@@ -35,13 +38,18 @@ export const addEmotion = async (req: AuthRequest, res: Response): Promise<void>
       res.status(403).json({ message: 'Access denied' });
       return;
     }
+    // Только разрешённые поля: ...req.body позволял подставить createdAt и любые лишние поля
+    const { mood, intensity, comment } = req.body ?? {};
     const emotion = await Emotion.create({
-      ...req.body,
+      mood,
+      intensity,
+      comment: typeof comment === 'string' ? comment.slice(0, 2000) : undefined,
       childId,
       recordedBy: req.user!.id,
     });
     res.status(201).json(emotion);
-  } catch {
+  } catch (err: any) {
+    if (err?.name === 'ValidationError') { res.status(400).json({ message: 'Некорректные данные' }); return; }
     res.status(500).json({ message: 'Server error' });
   }
 };
