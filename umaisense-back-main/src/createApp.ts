@@ -104,14 +104,23 @@ export const createApp = () => {
     })
   );
 
+  // Запрос со страницы того же домена (Origin совпадает с Host) — это не кросс-доменный запрос,
+  // он разрешён всегда: так сайт работает на любом своём адресе (превью, IP-адрес, новый домен).
+  const sameOrigin = (req: Request, origin?: string): boolean => {
+    if (!origin) return true;
+    try {
+      const host = String(req.headers.host ?? '').trim();
+      return !!host && new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  };
   app.use(
-    cors({
-      origin: (origin, callback) => {
-        const isAllowed = !origin || allowedOrigins.includes(origin);
-        if (isAllowed) callback(null, true);
-        else callback(new Error('Not allowed by CORS'));
-      },
-      credentials: true,
+    cors((req, callback) => {
+      const origin = req.headers.origin;
+      const isAllowed = sameOrigin(req as Request, origin) || allowedOrigins.includes(String(origin));
+      if (isAllowed) callback(null, { origin: true, credentials: true });
+      else callback(new Error('Not allowed by CORS'));
     })
   );
   app.use(express.json({ limit: '1mb' }));
