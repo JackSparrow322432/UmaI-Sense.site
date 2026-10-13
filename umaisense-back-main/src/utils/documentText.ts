@@ -119,3 +119,26 @@ export const extractDocumentText = async (doc: DocumentModelLike): Promise<Extra
   text = text.replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS_PER_DOC);
   return text ? { kind: doc.mimeType, text } : null;
 };
+
+/** Почему документ нельзя прочитать (до попытки чтения) — понятная причина для интерфейса и логов */
+export const unreadableReason = (doc: DocumentModelLike & { fileUrl?: string }): string | null => {
+  const provider: StorageProvider = doc.storageProvider === 'cloudinary' ? 'cloudinary' : 's3';
+  if (doc.mimeType === 'application/msword') return 'старый формат Word (.doc) — нужен PDF или DOCX';
+  if (doc.mimeType.startsWith('image/') && !ocrAvailable()) return 'распознавание фото недоступно на сервере';
+  if (doc.storageKey && !canReadStored(provider)) {
+    return provider === 'cloudinary'
+      ? 'файл в старом хранилище Cloudinary, а на сервере не заданы CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET'
+      : 'хранилище файлов (S3) не настроено на сервере';
+  }
+  if (!doc.storageKey && !doc.fileUrl) return 'файл документа не найден';
+  return null;
+};
+
+/** Текст ошибки чтения → понятная причина */
+export const readErrorReason = (err: unknown): string => {
+  const m = String((err as Error)?.message ?? err);
+  if (/OCR is not available/i.test(m)) return 'распознавание фото недоступно на сервере';
+  if (/pdf-parse|Invalid PDF|XRef|password/i.test(m)) return 'PDF повреждён или защищён паролем';
+  if (/download failed: (401|403|404)/i.test(m)) return 'файл недоступен в хранилище (нет доступа или удалён)';
+  return `ошибка чтения: ${m.slice(0, 120)}`;
+};

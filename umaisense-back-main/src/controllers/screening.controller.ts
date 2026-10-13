@@ -15,7 +15,7 @@ import { logAccess } from '../utils/audit';
 import { extractDocumentText } from '../utils/documentText';
 import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage, isProviderInKz, aiConfigProblem } from '../utils/aiClient';
 import { documentInsightLines, ensureDocumentInsights } from '../utils/documentAi';
-import { ocrAvailable } from '../utils/documentText';
+import { ocrAvailable, unreadableReason, readErrorReason } from '../utils/documentText';
 
 /**
  * ИИ-скрининг ребёнка: анализ профиля, наблюдений, вех развития и документов → структурированный отчёт
@@ -301,21 +301,26 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
       docInsights = await documentInsightLines(child._id, scrub);
     }
     let documentsSkipped = 0;
+    const skippedReasons: string[] = [];
+    const skip = (d: any, reason: string) => {
+      documentsSkipped++;
+      skippedReasons.push(`${docKind(d.fileName)}: ${reason}`);
+      console.warn('[screening] document skipped:', reason);
+    };
     if (docsMode === 'text') {
       let total = 0;
       for (const d of docs) {
-        if (total >= MAX_DOC_CHARS_TOTAL) { documentsSkipped++; continue; }
-        // Фото документов: текст распознаётся у нас (OCR) и обезличивается; само изображение не передаётся
-        if (String(d.mimeType).startsWith('image/') && !ocrAvailable()) { documentsSkipped++; continue; }
+        if (total >= MAX_DOC_CHARS_TOTAL) { skip(d, 'превышен объём текста для одного скрининга'); continue; }
+        const why = unreadableReason(d as any);
+        if (why) { skip(d, why); continue; }
         try {
           const ex = await extractDocumentText(d as any);
-          if (!ex) { documentsSkipped++; continue; }
+          if (!ex) { skip(d, String(d.mimeType).startsWith('image/') ? 'на фото не удалось распознать текст' : 'в документе не найден текст (возможно, это скан)'); continue; }
           const text = scrub(ex.text).slice(0, MAX_DOC_CHARS_TOTAL - total);
           total += text.length;
           docTexts.push({ kind: docKind(d.fileName), text });
         } catch (err) {
-          console.warn('[screening] document skipped:', (err as Error).message);
-          documentsSkipped++;
+          skip(d, readErrorReason(err));
         }
       }
     }
@@ -345,7 +350,7 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
         periodDays,
         counts: { emotions: emotions.length, activities: activities.length, diary: diary.length, milestones: milestones.length, documents: docs.length },
         documentsMode: !docs.length ? 'none' : docTexts.length ? 'text' : 'types_only',
-        ...(documentsSkipped ? { documentsSkipped } : {}),
+        ...(documentsSkipped ? { documentsSkipped, documentsSkippedReasons: [...new Set(skippedReasons)].slice(0, 10) } : {}),
       },
     });
     screeningId = screening._id as Types.ObjectId;

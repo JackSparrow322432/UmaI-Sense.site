@@ -28,6 +28,7 @@ export interface IScreening extends Document {
     counts: { emotions: number; activities: number; diary: number; milestones: number; documents: number };
     documentsMode: 'none' | 'types_only' | 'text';
     documentsSkipped?: number;
+    documentsSkippedReasons?: string[];
   };
   result?: IScreeningResult;
   consentVersion: string;

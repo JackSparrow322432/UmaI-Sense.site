@@ -210,6 +210,11 @@ export default function ScreeningPage() {
             Отчёт от {fmtDate(current.createdAt)} · использовано: {current.inputSummary.sections.join(', ')}
             {current.inputSummary.documentsSkipped ? ` · не удалось прочитать документов: ${current.inputSummary.documentsSkipped}` : ''}
           </p>
+          {!!current.inputSummary.documentsSkippedReasons?.length && (
+            <ul className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-0.5">
+              {current.inputSummary.documentsSkippedReasons.map((t, i) => <li key={i}>Не прочитан — {t}</li>)}
+            </ul>
+          )}
 
           <Card title="Общая картина" icon="📝"><p className="text-sm text-gray-700 leading-relaxed">{r.summary}</p></Card>
           <Card title="Сильные стороны" icon="💪" tone="green"><List items={r.strengths} /></Card>

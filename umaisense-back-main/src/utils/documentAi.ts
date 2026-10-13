@@ -4,7 +4,7 @@ import { Types } from 'mongoose';
 import DocumentModel from '../models/Document';
 import { DocumentAiResult } from '../types';
 import { getClient, Provider, providerName, docsExternalEnabled, docsImagesExternalEnabled, parseJson, strArr, isProviderInKz } from './aiClient';
-import { extractDocumentText, ocrAvailable } from './documentText';
+import { extractDocumentText, ocrAvailable, unreadableReason, readErrorReason } from './documentText';
 import { downloadStored, canReadStored, StorageProvider } from './documentStorage';
 import { hasActiveConsent } from './consent';
 import { Scrub } from './anonymize';
@@ -132,7 +132,11 @@ export const explainDocument = async (documentId: string, childId: string, scrub
         ] },
       ];
     } else {
-      const ex = await extractDocumentText(doc as any);
+      const why = unreadableReason(doc as any);
+      if (why) throw new DocumentAiError(`Документ не прочитан: ${why}.`, 422);
+      let ex;
+      try { ex = await extractDocumentText(doc as any); }
+      catch (e) { throw new DocumentAiError(`Документ не прочитан: ${readErrorReason(e)}.`, 422); }
       if (!ex || ex.text.trim().length < 20) {
         throw new DocumentAiError(isImage
           ? 'Не удалось распознать текст на фото. Сфотографируйте документ ровно, при хорошем свете, чтобы текст был резким.'
