@@ -315,7 +315,7 @@ export interface Session {
 
 export interface AccessLogEntry {
   _id: string;
-  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view' | 'report.download' | 'document.ai_explain';
+  action: 'document.upload' | 'document.view' | 'document.delete' | 'child.view' | 'child.access_granted' | 'screening.run' | 'screening.view' | 'report.download' | 'document.ai_explain' | 'child.ai_summary' | 'child.ai_summary_pdf';
   userId?: Pick<User, '_id' | 'name' | 'role'> | null;
   role?: UserRole;
   createdAt: string;
@@ -382,5 +382,44 @@ export interface ScreeningStatus {
   configProblem?: string;
   documentsMode: 'none' | 'types_only' | 'text';
   missingConsents: ConsentType[];
+  dailyLimit: number;
+}
+
+// ─── ИИ-сводка по ребёнку (администратор) ─────────────────────────────────────
+export interface AdminSummaryDocument {
+  ref: string; fileName: string; kind: string; uploadedAt: string; used: boolean; reason?: string;
+}
+export interface AdminSummaryResult {
+  overview: string;
+  medical: { text: string; source?: string }[];
+  restrictions: string[];
+  safety: string[];
+  strengths: string[];
+  dynamics: string;
+  adminRecommendations: string[];
+  gaps: string[];
+  contradictions: string[];
+}
+export interface AdminSummary {
+  _id: string;
+  childId: string;
+  createdBy?: { _id: string; name?: string; email?: string } | string;
+  status: 'pending' | 'done' | 'failed';
+  inputSummary: {
+    sections: string[]; periodDays: number; documents: AdminSummaryDocument[];
+    documentsTotal: number; documentsUsed: number; notes: string[];
+  };
+  result?: AdminSummaryResult;
+  error?: string;
+  createdAt: string;
+}
+export interface AdminSummaryStatus {
+  provider: string;
+  enabled: boolean;
+  configProblem?: string;
+  canRun: boolean;
+  missingConsents: ConsentType[];
+  documentsTotal: number;
+  documentsReady: number;
   dailyLimit: number;
 }

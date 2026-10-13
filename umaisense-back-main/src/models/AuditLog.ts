@@ -11,7 +11,8 @@ export type AuditAction =
   | 'admin.grant' | 'admin.revoke'
   | 'screening.run' | 'screening.view'
   | 'report.download'
-  | 'document.ai_explain';
+  | 'document.ai_explain'
+  | 'child.ai_summary' | 'child.ai_summary_pdf';
 
 export interface IAuditLog extends Document {
   userId?: Types.ObjectId;

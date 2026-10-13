@@ -197,6 +197,7 @@ export interface DocumentCoverage { total: number; used: number; failed: number;
  */
 export const ensureDocumentInsights = async (
   childId: Types.ObjectId | string, parentId: Types.ObjectId | string, scrub: Scrub, max = 3,
+  deadline?: number,
 ): Promise<DocumentCoverage> => {
   const total = await DocumentModel.countDocuments({ childId, status: 'ready' });
   const cov: DocumentCoverage = { total, used: 0, failed: 0 };
@@ -216,6 +217,7 @@ export const ensureDocumentInsights = async (
   let budget = docsDailyLimit() - await DocumentModel.countDocuments({ childId, aiAt: { $gte: dayAgo } });
   for (const d of pending as any[]) {
     if (budget <= 0) { cov.note = 'достигнут суточный лимит расшифровок'; break; }
+    if (deadline && Date.now() > deadline) { cov.note = 'не все документы успели обработаться — сформируйте ещё раз'; break; }
     if (String(d.mimeType).startsWith('image/') && !avail.images) continue;
     budget--;
     try { await explainDocument(String(d._id), String(childId), scrub); }

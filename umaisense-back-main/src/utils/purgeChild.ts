@@ -11,6 +11,7 @@ import EnrollmentRequest from '../models/EnrollmentRequest';
 import Assignment from '../models/Assignment';
 import Session from '../models/Session';
 import Screening from '../models/Screening';
+import AdminSummary from '../models/AdminSummary';
 import { isProviderAvailable, removeStored, StorageProvider } from './documentStorage';
 import { todayStr } from './schedule';
 
@@ -41,6 +42,7 @@ export const purgeChildData = async (childId: Types.ObjectId | string): Promise<
     DiaryEntry.deleteMany({ childId: id }),
     Recommendation.deleteMany({ childId: id }),
     Screening.deleteMany({ childId: id }),
+    AdminSummary.deleteMany({ childId: id }),
     TaskRating.deleteMany({ childId: id }),
     ChildMilestone.deleteMany({ childId: id }),
     EnrollmentRequest.updateMany(

@@ -16,6 +16,8 @@ import Consent from '../models/Consent';
 import { ChildMilestone } from '../models/Milestone';
 import { MOOD_RU, CAT_RU, TAG_RU, getAge } from './anonymize';
 import { formatSlots, todayStr } from './schedule';
+import AdminSummary from '../models/AdminSummary';
+import { renderAdminSummaryBody } from './adminSummary';
 
 /**
  * PDF-отчёт по профилю ребёнка для администратора.
@@ -304,6 +306,22 @@ export const buildChildReportPdf = async (
       if (r.recommendations?.length) { para('Рекомендовано в документе:', { color: GRAY, size: 9 }); bullets(r.recommendations); }
       if (r.forTrainer?.length) { para('Важно для тренера:', { color: GRAY, size: 9 }); bullets(r.forTrainer); }
       if (forParent && r.questionsForDoctor?.length) { para('Вопросы врачу:', { color: GRAY, size: 9 }); bullets(r.questionsForDoctor); }
+    }
+  }
+
+  // ИИ-сводка администратора (последняя) — только в досье для администратора
+  if (!forParent) {
+    const summary = await AdminSummary.findOne({ childId: id, status: 'done' }).sort({ createdAt: -1 });
+    heading('ИИ-сводка администратора');
+    if (summary?.result) {
+      para(`от ${fmtDateTime(summary.createdAt)} · сформирована ИИ, носит информационный характер, не является медицинским заключением`, { color: GRAY, size: 8.5 });
+      renderAdminSummaryBody({
+        W,
+        heading: (t: string) => { ensure(30); doc.moveDown(0.3); doc.font('bold').fontSize(10).fillColor(DARK).text(t, X, doc.y, { width: W }); doc.moveDown(0.15); },
+        para, bullets, table,
+      }, summary);
+    } else {
+      para('ИИ-сводка ещё не формировалась.', { color: GRAY });
     }
   }
 

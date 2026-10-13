@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { adminApi } from '../../api';
 import { saveBlobResponse } from '../../utils/downloadBlob';
 import { skiText, adaptiveText } from '../../utils/enrollment';
+import AdminAiSummary from '../../components/admin/AdminAiSummary';
 import type { Child, Emotion, Activity, DiaryEntry, User, MoodType, ActivityCategory, DiaryTag } from '../../types';
 
 // ─── Configs ─────────────────────────────────────────────────────────────────
@@ -197,6 +198,9 @@ export default function AdminChildDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ИИ-сводка по ребёнку (профиль + документы) */}
+      {childId && <AdminAiSummary childId={childId} childName={[child.lastName, child.name].filter(Boolean).join('_')} />}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">

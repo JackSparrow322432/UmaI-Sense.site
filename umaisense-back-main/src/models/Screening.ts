@@ -19,7 +19,7 @@ export interface IScreeningResult {
 export interface IScreening extends Document {
   childId: Types.ObjectId;
   requestedBy: Types.ObjectId;
-  provider: 'openai' | 'local';
+  provider: 'openai' | 'yandex' | 'local';
   aiModel: string;
   status: 'pending' | 'done' | 'failed';
   inputSummary: {
@@ -40,7 +40,7 @@ const screeningSchema = new Schema<IScreening>(
   {
     childId: { type: Schema.Types.ObjectId, ref: 'Child', required: true, index: true },
     requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    provider: { type: String, enum: ['openai', 'local'], required: true },
+    provider: { type: String, enum: ['openai', 'yandex', 'local'], required: true },
     aiModel: { type: String, required: true },
     status: { type: String, enum: ['pending', 'done', 'failed'], default: 'pending' },
     inputSummary: { type: Schema.Types.Mixed, required: true },

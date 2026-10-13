@@ -6,7 +6,7 @@ import type {
   Milestone, ChildMilestone, Recommendation,
   Notification, InviteCode, MoodType,
   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
-  Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry,
+  Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry, AdminSummary, AdminSummaryStatus,
   EnrollmentRequest, Assignment, Session, ScheduleSlot, Weekday, RequestStatus,
   ConsentStatus, ConsentType, Screening, ScreeningStatus, DocumentAiResult, DocumentAiStatus,
 } from '../types';
@@ -120,6 +120,13 @@ export const adminApi = {
   // PDF-отчёт по профилю ребёнка (скачивание файлом)
   getChildReport: (childId: string) =>
     api.get<Blob>(`/admin/children/${childId}/report.pdf`, { responseType: 'blob', timeout: 60_000 }),
+  // ИИ-сводка по ребёнку: формирование занимает до минуты
+  getSummaryStatus: (childId: string) => api.get<AdminSummaryStatus>(`/admin/children/${childId}/ai-summary/status`),
+  getSummaries: (childId: string) => api.get<AdminSummary[]>(`/admin/children/${childId}/ai-summary`),
+  getSummary: (childId: string, id: string) => api.get<AdminSummary>(`/admin/children/${childId}/ai-summary/${id}`),
+  createSummary: (childId: string) => api.post<AdminSummary>(`/admin/children/${childId}/ai-summary`, {}, { timeout: 90_000 }),
+  getSummaryPdf: (childId: string, id: string) =>
+    api.get<Blob>(`/admin/children/${childId}/ai-summary/${id}/pdf`, { responseType: 'blob', timeout: 60_000 }),
   getChildAudit: (childId: string) =>
     api.get<(AccessLogEntry & { ip?: string; userId?: { _id: string; name: string; email?: string; role: string } | null })[]>(
       `/admin/children/${childId}/audit`
