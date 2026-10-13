@@ -14,7 +14,8 @@ import { hasActiveConsent, CONSENT_VERSION } from '../utils/consent';
 import { logAccess } from '../utils/audit';
 import { extractDocumentText } from '../utils/documentText';
 import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage, isProviderInKz } from '../utils/aiClient';
-import { documentInsightLines } from '../utils/documentAi';
+import { documentInsightLines, ensureDocumentInsights } from '../utils/documentAi';
+import { ocrAvailable } from '../utils/documentText';
 
 /**
  * ИИ-скрининг ребёнка: анализ профиля, наблюдений, вех развития и документов → структурированный отчёт
@@ -289,16 +290,19 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     const docKinds = [...new Set(docs.map((d) => docKind(d.fileName)))];
     const docTexts: { kind: string; text: string }[] = [];
     // Готовые ИИ-расшифровки документов — только при согласии родителя на анализ документов
-    const docInsights = (await hasActiveConsent(child.parentId, 'documents_ai'))
-      ? await documentInsightLines(child._id, scrub)
-      : [];
+    // Ещё не расшифрованные документы расшифровываются сейчас (до 3 новых), чтобы скрининг их учёл
+    let docInsights: string[] = [];
+    if (await hasActiveConsent(child.parentId, 'documents_ai')) {
+      await ensureDocumentInsights(child._id, child.parentId, scrub);
+      docInsights = await documentInsightLines(child._id, scrub);
+    }
     let documentsSkipped = 0;
     if (docsMode === 'text') {
       let total = 0;
       for (const d of docs) {
         if (total >= MAX_DOC_CHARS_TOTAL) { documentsSkipped++; continue; }
-        // Во внешний ИИ фото документов не передаём: имя и ИИН на изображении не скрыть
-        if (!isProviderInKz(provider) && String(d.mimeType).startsWith('image/')) { documentsSkipped++; continue; }
+        // Фото документов: текст распознаётся у нас (OCR) и обезличивается; само изображение не передаётся
+        if (String(d.mimeType).startsWith('image/') && !ocrAvailable()) { documentsSkipped++; continue; }
         try {
           const ex = await extractDocumentText(d as any);
           if (!ex) { documentsSkipped++; continue; }

@@ -12,7 +12,7 @@ import { logAccess } from '../utils/audit';
 import User from '../models/User';
 import { makeScrubber } from '../utils/anonymize';
 import { providerName, aiErrorMessage } from '../utils/aiClient';
-import { explainDocument, documentAiAvailability, documentAiMissingConsents, DocumentAiError } from '../utils/documentAi';
+import { explainDocument, documentAiAvailability, documentAiMissingConsents, DocumentAiError, docsDailyLimit } from '../utils/documentAi';
 
 /**
  * Медицинские и личные документы ребёнка.
@@ -190,6 +190,9 @@ export const completeUpload = async (req: AuthRequest, res: Response): Promise<v
 
     const saved = await DocumentModel.findById(document._id).select(PUBLIC_FIELDS).populate('uploadedBy', 'name role');
     res.json(saved);
+    // Фоновая ИИ-расшифровка нового документа (если ИИ включён и родитель дал согласия) —
+    // чтобы советы и скрининг сразу учитывали его содержание. Ответ пользователю не ждёт.
+    void autoExplainInBackground(child, String(document._id));
   } catch (err) {
     console.error('[Documents] complete error:', err);
     res.status(500).json({ message: 'Ошибка сохранения документа' });
@@ -267,7 +270,21 @@ export const deleteDocument = async (req: AuthRequest, res: Response): Promise<v
 
 // ─── ИИ-расшифровка документов ───────────────────────────────────────────────
 
-const EXPLAIN_DAILY_LIMIT = () => Math.max(Number(process.env.AI_DOCS_DAILY_LIMIT) || 20, 1);
+const EXPLAIN_DAILY_LIMIT = docsDailyLimit;
+
+const autoExplainInBackground = async (child: any, documentId: string): Promise<void> => {
+  try {
+    if (!documentAiAvailability().enabled) return;
+    if ((await documentAiMissingConsents(child.parentId, providerName())).length) return;
+    const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
+    if (await DocumentModel.countDocuments({ childId: child._id, aiAt: { $gte: dayAgo } }) >= EXPLAIN_DAILY_LIMIT()) return;
+    const people = await User.find({ _id: { $in: [child.parentId, ...(child.trainers ?? [])] } }).select('name').lean();
+    const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p: any) => p.name)]);
+    await explainDocument(documentId, String(child._id), scrub);
+  } catch (err) {
+    console.warn('[documents] background explain skipped:', (err as Error).message);
+  }
+};
 
 // GET /api/documents/:childId/ai/status — доступна ли расшифровка и каких согласий не хватает
 export const documentAiStatus = async (req: AuthRequest, res: Response): Promise<void> => {

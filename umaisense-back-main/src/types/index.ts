@@ -114,6 +114,7 @@ export interface IRecommendation extends Document {
     communicationTips?: string[];
     attentionPoints?: string[];
   };
+  sources?: { personalized?: boolean; documentsTotal?: number; documentsUsed?: number; note?: string };
   generatedAt: Date;
 }
 

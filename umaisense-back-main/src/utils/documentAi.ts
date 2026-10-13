@@ -4,7 +4,7 @@ import { Types } from 'mongoose';
 import DocumentModel from '../models/Document';
 import { DocumentAiResult } from '../types';
 import { getClient, Provider, providerName, docsExternalEnabled, docsImagesExternalEnabled, parseJson, strArr, isProviderInKz } from './aiClient';
-import { extractDocumentText } from './documentText';
+import { extractDocumentText, ocrAvailable } from './documentText';
 import { downloadStored, isProviderAvailable, StorageProvider } from './documentStorage';
 import { hasActiveConsent } from './consent';
 import { Scrub } from './anonymize';
@@ -80,8 +80,9 @@ export const documentAiAvailability = (): { enabled: boolean; images: boolean; r
   if (!isProviderInKz(p) && !docsExternalEnabled()) {
     return { enabled: false, images: false, reason: 'Расшифровка документов внешним ИИ не включена (AI_SCREENING_DOCS_EXTERNAL)' };
   }
-  // В РК (своя модель, YandexGPT KZ) фото читаются через OCR; во внешний ИИ — только по флагу
-  return { enabled: true, images: isProviderInKz(p) || docsImagesExternalEnabled() };
+  // Фото и сканы: текст распознаётся на нашем сервере (OCR) и обезличивается — само фото никуда
+  // не уходит. Отправка изображения целиком во внешний ИИ — только по флагу AI_DOCS_IMAGES_EXTERNAL.
+  return { enabled: true, images: isProviderInKz(p) || docsImagesExternalEnabled() || ocrAvailable() };
 };
 
 const imageDataUrl = async (buf: Buffer, mimeType: string): Promise<string> => {
@@ -110,7 +111,7 @@ export const explainDocument = async (documentId: string, childId: string, scrub
     throw new DocumentAiError('Старый формат Word (.doc) не поддерживается — сохраните документ как PDF или DOCX и загрузите снова.', 422);
   }
   if (isImage && !avail.images) {
-    throw new DocumentAiError('Фото и сканы документов не отправляются во внешний ИИ (на изображении нельзя скрыть ФИО и ИИН). Загрузите документ в PDF или Word.', 422, 'IMAGE_NOT_ALLOWED');
+    throw new DocumentAiError('Распознавание фото документов недоступно на сервере. Загрузите документ в PDF или Word.', 422, 'IMAGE_NOT_ALLOWED');
   }
 
   doc.aiStatus = 'pending';
@@ -119,7 +120,7 @@ export const explainDocument = async (documentId: string, childId: string, scrub
 
   try {
     let messages: any[];
-    if (isImage && p === 'openai') {
+    if (isImage && p === 'openai' && docsImagesExternalEnabled()) {
       const provider: StorageProvider = doc.storageProvider === 'cloudinary' ? 'cloudinary' : 's3';
       if (!doc.storageKey || !isProviderAvailable(provider)) throw new DocumentAiError('Файл документа недоступен в хранилище', 503);
       const url = await imageDataUrl(await downloadStored(provider, doc.storageKey), doc.mimeType);
@@ -133,16 +134,18 @@ export const explainDocument = async (documentId: string, childId: string, scrub
     } else {
       const ex = await extractDocumentText(doc as any);
       if (!ex || ex.text.trim().length < 20) {
-        throw new DocumentAiError('Не удалось прочитать текст документа. Если это скан, загрузите более чёткий файл или PDF с текстом.', 422);
+        throw new DocumentAiError(isImage
+          ? 'Не удалось распознать текст на фото. Сфотографируйте документ ровно, при хорошем свете, чтобы текст был резким.'
+          : 'Не удалось прочитать текст документа. Если это скан, загрузите более чёткий файл или PDF с текстом.', 422);
       }
       messages = [
         { role: 'system', content: SYSTEM },
-        { role: 'user', content: `Текст медицинского документа ребёнка (персональные данные скрыты):\n\n${scrub(ex.text).slice(0, MAX_TEXT)}` },
+        { role: 'user', content: `${isImage ? 'Текст, распознанный с фото медицинского документа ребёнка (возможны ошибки распознавания; персональные данные скрыты)' : 'Текст медицинского документа ребёнка (персональные данные скрыты)'}:\n\n${scrub(ex.text).slice(0, MAX_TEXT)}` },
       ];
     }
 
     const completion = await ai.client.chat.completions.create({
-      model: isImage ? ai.visionModel : ai.model,
+      model: isImage && p === 'openai' && docsImagesExternalEnabled() ? ai.visionModel : ai.model,
       messages,
       temperature: 0.2,
       max_tokens: 1800,
@@ -181,4 +184,43 @@ export const documentInsightLines = async (childId: Types.ObjectId | string, scr
     if (r.recommendations?.length) L.push(`  Рекомендовано в документе: ${r.recommendations.slice(0, 5).map(scrub).join('; ')}`);
   }
   return L;
+};
+
+export const docsDailyLimit = () => Math.max(Number(process.env.AI_DOCS_DAILY_LIMIT) || 20, 1);
+
+export interface DocumentCoverage { total: number; used: number; failed: number; note?: string }
+
+/**
+ * Перед ИИ-советами и скринингом: расшифровывает ещё не обработанные документы ребёнка
+ * (до `max` самых новых, в пределах суточного лимита), чтобы ИИ учитывал их содержание
+ * без ручного нажатия «Расшифровать». Ошибки по отдельным документам не прерывают работу.
+ */
+export const ensureDocumentInsights = async (
+  childId: Types.ObjectId | string, parentId: Types.ObjectId | string, scrub: Scrub, max = 3,
+): Promise<DocumentCoverage> => {
+  const total = await DocumentModel.countDocuments({ childId, status: 'ready' });
+  const cov: DocumentCoverage = { total, used: 0, failed: 0 };
+  if (!total) return cov;
+  const avail = documentAiAvailability();
+  if (!avail.enabled) { cov.note = avail.reason; cov.used = await DocumentModel.countDocuments({ childId, aiStatus: 'done' }); return cov; }
+  const missing = await documentAiMissingConsents(parentId, providerName());
+  if (missing.length) { cov.note = 'нет согласия родителя на анализ документов ИИ'; return cov; }
+
+  const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+  const pending = await DocumentModel.find({
+    childId, status: 'ready', mimeType: { $ne: 'application/msword' },
+    $or: [{ aiStatus: { $in: [null, 'disabled'] } }, { aiStatus: 'pending', updatedAt: { $lt: staleBefore } }],
+  }).sort({ createdAt: -1 }).limit(max).select('_id mimeType').lean();
+
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
+  let budget = docsDailyLimit() - await DocumentModel.countDocuments({ childId, aiAt: { $gte: dayAgo } });
+  for (const d of pending as any[]) {
+    if (budget <= 0) { cov.note = 'достигнут суточный лимит расшифровок'; break; }
+    if (String(d.mimeType).startsWith('image/') && !avail.images) continue;
+    budget--;
+    try { await explainDocument(String(d._id), String(childId), scrub); }
+    catch (err) { cov.failed++; console.warn('[documentAi] auto-explain skipped:', (err as Error).message); }
+  }
+  cov.used = await DocumentModel.countDocuments({ childId, aiStatus: 'done' });
+  return cov;
 };

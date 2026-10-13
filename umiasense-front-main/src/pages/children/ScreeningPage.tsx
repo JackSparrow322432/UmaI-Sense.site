@@ -41,7 +41,7 @@ const fmtDate = (d: string) =>
 const DOCS_MODE: Record<ScreeningStatus['documentsMode'], string> = {
   none: 'Документы не используются.',
   types_only: 'Из документов передаются только их типы («выписка», «заключение невролога»…) — без текста и названий файлов.',
-  text: 'ИИ анализирует текст документов PDF и Word; имена, ИИН, телефоны и даты в тексте скрываются автоматически. Фото и сканы документов во внешний ИИ не передаются — загружайте документы в PDF.',
+  text: 'ИИ анализирует текст документов: PDF, Word и фото (текст с фото распознаётся на нашем сервере). Имена, ИИН, телефоны и даты скрываются автоматически; сами файлы и фото во внешний ИИ не передаются.',
 };
 
 function Card({ title, icon, children, tone = 'default' }: { title: string; icon: string; children: React.ReactNode; tone?: 'default' | 'green' | 'red' }) {
@@ -310,7 +310,7 @@ export default function ScreeningPage() {
             {needDocs && (
               <ConsentCheckbox checked={agreeDocs} onChange={setAgreeDocs} required link={{ to: '/agreement#consent-documents-ai', label: '(текст согласия)' }}>
                 Я даю согласие на передачу внешнему сервису ИИ обезличенного текста загруженных документов
-                (PDF, Word) — имена, ИИН, телефоны и даты в тексте скрываются. Фото документов не передаются
+                (PDF, Word и текста, распознанного с фото) — имена, ИИН, телефоны и даты скрываются. Сами файлы и фото не передаются
               </ConsentCheckbox>
             )}
             <button

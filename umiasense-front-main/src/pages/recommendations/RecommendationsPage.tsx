@@ -64,9 +64,31 @@ const formatDateShort = (iso: string) =>
 
 // ─── Recommendation card (full view) ─────────────────────────────────────────
 
+function SourcesNote({ rec }: { rec: Recommendation }) {
+  const s = rec.sources;
+  if (!s) return null;
+  if (!s.personalized) {
+    return (
+      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+        Общие советы{s.note ? ` — ${s.note}` : ''}.
+      </p>
+    );
+  }
+  const total = s.documentsTotal ?? 0;
+  const used = s.documentsUsed ?? 0;
+  return (
+    <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+      Персональные советы по профилю, наблюдениям и дневнику
+      {total > 0 ? `; учтено документов: ${used} из ${total}` : '; документов пока нет'}
+      {total > 0 && used < total && s.note ? ` (${s.note})` : ''}.
+    </p>
+  );
+}
+
 function RecommendationCard({ rec }: { rec: Recommendation }) {
   return (
     <div className="space-y-3">
+      <SourcesNote rec={rec} />
       {CATEGORIES.map((cat) => {
         const items: string[] = rec.content[cat.key] ?? [];
         if (items.length === 0) return null;

@@ -127,6 +127,7 @@ export interface Recommendation {
     communicationTips?: string[];
     attentionPoints?: string[];
   };
+  sources?: { personalized?: boolean; documentsTotal?: number; documentsUsed?: number; note?: string };
   generatedAt: string;
 }
 

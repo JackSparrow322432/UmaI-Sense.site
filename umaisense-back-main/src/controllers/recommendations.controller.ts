@@ -8,9 +8,10 @@ import Emotion from '../models/Emotion';
 import Activity from '../models/Activity';
 import DiaryEntry from '../models/DiaryEntry';
 import Notification from '../models/Notification';
+import DocumentModel from '../models/Document';
 import { Scrub, makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU } from '../utils/anonymize';
 import { hasActiveConsent } from '../utils/consent';
-import { documentInsightLines } from '../utils/documentAi';
+import { documentInsightLines, ensureDocumentInsights, DocumentCoverage } from '../utils/documentAi';
 import { providerName, getClient, isProviderInKz } from '../utils/aiClient';
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
@@ -134,6 +135,9 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
     ]);
 
     let content = FALLBACK_CONTENT;
+    let coverage: DocumentCoverage | null = null;
+    let docInsights: string[] = [];
+    let personalized = false;
     // Данные (даже обезличенные) уходят во внешний ИИ за пределами РК только при согласии
     // родителя на трансграничную передачу (ст. 16 Закона РК № 94-V). Без согласия — общие советы.
     // Провайдер из общих настроек (utils/aiClient.ts). Если ИИ обрабатывает данные вне РК —
@@ -147,10 +151,15 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
       // Имена для скрытия в свободном тексте: ребёнок, родитель, тренеры
       const people = await User.find({ _id: { $in: [child.parentId, ...(child.trainers ?? [])] } }).select('name').lean();
       const scrub = makeScrubber([child.name, child.lastName ?? '', ...people.map((p) => p.name)]);
-      // Расшифровки документов — только при отдельном согласии родителя на анализ документов
-      const docInsights = (await hasActiveConsent(req.user!.id, 'documents_ai'))
-        ? await documentInsightLines(child._id, scrub)
-        : [];
+      // Документы и фото документов: ещё не расшифрованные расшифровываются сейчас (до 3 новых),
+      // затем в промпт идут обезличенные расшифровки. Только при согласии родителя documents_ai.
+      if (await hasActiveConsent(child.parentId, 'documents_ai')) {
+        coverage = await ensureDocumentInsights(child._id, child.parentId, scrub);
+        docInsights = await documentInsightLines(child._id, scrub);
+      } else {
+        const total = await DocumentModel.countDocuments({ childId: child._id, status: 'ready' });
+        coverage = { total, used: 0, failed: 0, note: total ? 'нет согласия родителя на анализ документов ИИ' : undefined };
+      }
       const prompt = buildPrompt(child, recentEmotions, recentActivities, recentDiary, scrub, docInsights);
 
       // Ошибка ИИ (неверный ключ, лимит, сбой) не должна ломать страницу:
@@ -174,6 +183,7 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
         if (parsed.calmingTechniques && parsed.activitiesForToday
             && parsed.communicationTips && parsed.attentionPoints) {
           content = parsed;
+          personalized = true;
         }
       } catch {
         console.error('[AI] Could not parse OpenAI JSON response:', raw);
@@ -184,7 +194,16 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
       console.warn('[AI] AI provider is off or not configured — using general recommendations');
     }
 
-    const recommendation = await Recommendation.create({ childId: child._id, content });
+    const recommendation = await Recommendation.create({
+      childId: child._id,
+      content,
+      sources: {
+        personalized,
+        documentsTotal: coverage?.total ?? 0,
+        documentsUsed: personalized ? Math.min(docInsights.length ? (coverage?.used ?? 0) : 0, 6) : 0,
+        note: personalized ? coverage?.note : (crossBorderOk ? 'ИИ недоступен — показаны общие советы' : 'нет согласия на передачу обезличенных данных в ИИ — показаны общие советы'),
+      },
+    });
 
     await Notification.create({
       userId: req.user!.id,

@@ -7,7 +7,7 @@
  * и переменная окружения CONSENT_VERSION) — пользователи увидят окно с обновлённой политикой.
  */
 
-export const LEGAL_VERSION = '2026-10-09';
+export const LEGAL_VERSION = '2026-10-13';
 
 export const OPERATOR = {
   name: 'ТОО «UmaiSense»',

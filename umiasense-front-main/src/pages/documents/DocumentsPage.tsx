@@ -48,7 +48,7 @@ function DocumentCard({
   const blocked = !ai ? null
     : !ai.enabled ? (ai.reason || 'ИИ не настроен')
     : isOldWord ? 'Формат .doc не поддерживается — загрузите PDF или DOCX'
-    : isImage && !ai.images ? 'Фото документов не отправляются во внешний ИИ — загрузите PDF'
+    : isImage && !ai.images ? 'Распознавание фото недоступно — загрузите PDF'
     : null;
 
   return (

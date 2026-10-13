@@ -209,7 +209,7 @@ LOCALITY_ALLOWED_HOSTS=<SMTP_HOST>
 AI_SCREENING_PROVIDER=openai
 ALLOW_FOREIGN_AI=true
 OPENAI_API_KEY=<новый ключ>
-CONSENT_VERSION=2026-10-09
+CONSENT_VERSION=2026-10-13
 ```
 Если репозиторий закрытый — добавьте на сервере deploy key только для чтения
 (`ssh-keygen -t ed25519 -f ~/.ssh/github_ro`, публичную часть — в GitHub → Settings → Deploy keys).

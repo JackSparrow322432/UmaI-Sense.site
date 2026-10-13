@@ -9,6 +9,13 @@ const recommendationSchema = new Schema<IRecommendation>({
     communicationTips: [String],
     attentionPoints: [String],
   },
+  // На чём основаны советы: персональные (ИИ) или общие, сколько документов учтено
+  sources: {
+    personalized: Boolean,
+    documentsTotal: Number,
+    documentsUsed: Number,
+    note: String,
+  },
   generatedAt: { type: Date, default: Date.now },
 });
 
