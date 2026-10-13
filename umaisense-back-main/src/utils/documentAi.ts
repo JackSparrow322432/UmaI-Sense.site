@@ -5,7 +5,7 @@ import DocumentModel from '../models/Document';
 import { DocumentAiResult } from '../types';
 import { getClient, Provider, providerName, docsExternalEnabled, docsImagesExternalEnabled, parseJson, strArr, isProviderInKz } from './aiClient';
 import { extractDocumentText, ocrAvailable } from './documentText';
-import { downloadStored, isProviderAvailable, StorageProvider } from './documentStorage';
+import { downloadStored, canReadStored, StorageProvider } from './documentStorage';
 import { hasActiveConsent } from './consent';
 import { Scrub } from './anonymize';
 
@@ -122,7 +122,7 @@ export const explainDocument = async (documentId: string, childId: string, scrub
     let messages: any[];
     if (isImage && p === 'openai' && docsImagesExternalEnabled()) {
       const provider: StorageProvider = doc.storageProvider === 'cloudinary' ? 'cloudinary' : 's3';
-      if (!doc.storageKey || !isProviderAvailable(provider)) throw new DocumentAiError('Файл документа недоступен в хранилище', 503);
+      if (!doc.storageKey || !canReadStored(provider)) throw new DocumentAiError('Файл документа недоступен в хранилище', 503);
       const url = await imageDataUrl(await downloadStored(provider, doc.storageKey), doc.mimeType);
       messages = [
         { role: 'system', content: SYSTEM },

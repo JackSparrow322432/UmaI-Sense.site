@@ -1,5 +1,5 @@
 import { DocumentModelLike } from './documentText.types';
-import { downloadStored, isProviderAvailable, StorageProvider } from './documentStorage';
+import { downloadStored, canReadStored, downloadLegacyUrl, StorageProvider } from './documentStorage';
 
 /**
  * Извлечение текста из документов ребёнка для ИИ-скрининга, расшифровки и советов.
@@ -107,8 +107,10 @@ export interface ExtractedDoc { kind: string; text: string }
 
 export const extractDocumentText = async (doc: DocumentModelLike): Promise<ExtractedDoc | null> => {
   const provider: StorageProvider = doc.storageProvider === 'cloudinary' ? 'cloudinary' : 's3';
-  if (!doc.storageKey || !isProviderAvailable(provider)) return null;
-  const buf = await downloadStored(provider, doc.storageKey);
+  let buf: Buffer;
+  if (doc.storageKey && canReadStored(provider)) buf = await downloadStored(provider, doc.storageKey);
+  else if (!doc.storageKey && (doc as any).fileUrl) buf = await downloadLegacyUrl((doc as any).fileUrl);
+  else return null;
   let text = '';
   if (doc.mimeType === 'application/pdf') text = await extractPdf(buf);
   else if (doc.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') text = await extractDocx(buf);

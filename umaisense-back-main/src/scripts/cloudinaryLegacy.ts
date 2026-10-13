@@ -1,6 +1,7 @@
 /**
- * Доступ к СТАРЫМ файлам в Cloudinary — только для одноразового переноса в Yandex Object Storage KZ
- * (scripts/migrate-files-to-s3.ts). Рабочий код сервера этот модуль не импортирует.
+ * Доступ к СТАРЫМ файлам в Cloudinary: одноразовый перенос в Yandex Object Storage KZ
+ * (scripts/migrate-files-to-s3.ts) и чтение старых документов до переноса (utils/documentStorage.ts).
+ * Новые файлы в Cloudinary не загружаются.
  * Пакет `cloudinary` установлен как devDependency и в production-образ не попадает.
  */
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -34,3 +35,7 @@ export const downloadFromCloudinary = async (key: string): Promise<Buffer> => {
 export const removeFromCloudinary = async (key: string): Promise<void> => {
   await client().uploader.destroy(key, { ...CLD, invalidate: true });
 };
+
+/** Ссылка на старый документ на 5 минут (просмотр или скачивание) */
+export const cloudinaryDownloadUrl = (key: string, inline: boolean): string =>
+  client().utils.private_download_url(key, '', { ...CLD, attachment: !inline, expires_at: Math.floor(Date.now() / 1000) + 300 });

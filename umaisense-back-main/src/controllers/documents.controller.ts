@@ -4,7 +4,7 @@ import { AuthRequest } from '../types';
 import Child from '../models/Child';
 import DocumentModel from '../models/Document';
 import {
-  activeProvider, isProviderAvailable, maxDocumentSize, prepareUpload, getStoredSize,
+  activeProvider, isProviderAvailable, canReadStored, maxDocumentSize, prepareUpload, getStoredSize,
   getDownloadUrl as storageDownloadUrl, readStoredHead, removeStored, StorageProvider,
 } from '../utils/documentStorage';
 import { DOCUMENT_TYPES, matchesSignature, extFor, cleanFileName } from '../utils/fileTypes';
@@ -218,7 +218,7 @@ export const getDownloadUrl = async (req: AuthRequest, res: Response): Promise<v
     let url: string;
     if (document.storageKey) {
       const provider = providerOf(document);
-      if (!isProviderAvailable(provider)) { storageUnavailable(res); return; }
+      if (!canReadStored(provider)) { storageUnavailable(res); return; }
       url = await storageDownloadUrl(provider, document.storageKey, document.fileName, req.query['inline'] === '1');
     } else if (document.fileUrl) {
       // Старый документ, ещё не перенесённый скриптом migrate:files
