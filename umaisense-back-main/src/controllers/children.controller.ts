@@ -9,7 +9,6 @@ import Session from '../models/Session';
 import { todayStr } from '../utils/schedule';
 import { recordConsent } from '../utils/consent';
 import { logAccess } from '../utils/audit';
-import AuditLog from '../models/AuditLog';
 import { purgeChildData } from '../utils/purgeChild';
 import User from '../models/User';
 import { buildChildReportPdf, ChildNotFoundError } from '../utils/childReport';
@@ -240,25 +239,6 @@ export const removeTrainer = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// GET /api/children/:id/access-log — родитель видит, кто открывал профиль и документы ребёнка
-export const getAccessLog = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const child = await Child.findOne({ _id: req.params.id, parentId: req.user?.id }).select('_id');
-    if (!child) {
-      res.status(404).json({ message: 'Child not found or access denied' });
-      return;
-    }
-    const entries = await AuditLog.find({ childId: child._id })
-      .populate('userId', 'name role')
-      .select('-ip -userAgent')
-      .sort({ createdAt: -1 })
-      .limit(200)
-      .lean();
-    res.json(entries);
-  } catch {
-    res.status(500).json({ message: 'Server error' });
-  }
-};
 
 // GET /api/children/:id/report.pdf — досье ребёнка для родителя (только свой ребёнок)
 export const downloadChildDossier = async (req: AuthRequest, res: Response): Promise<void> => {

@@ -49,7 +49,6 @@ export const childrenApi = {
   delete: (id: string) => api.delete(`/children/${id}`),
   removeTrainer: (childId: string, trainerId: string) =>
     api.delete(`/children/${childId}/trainers/${trainerId}`),
-  getAccessLog: (childId: string) => api.get<AccessLogEntry[]>(`/children/${childId}/access-log`),
 };
 
 export const invitesApi = {
