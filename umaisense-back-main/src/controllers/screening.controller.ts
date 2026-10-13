@@ -13,7 +13,7 @@ import { makeScrubber, childProfileLines, daysAgoLabel, MOOD_RU, CAT_RU, TAG_RU,
 import { hasActiveConsent, CONSENT_VERSION } from '../utils/consent';
 import { logAccess } from '../utils/audit';
 import { extractDocumentText } from '../utils/documentText';
-import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage, isProviderInKz } from '../utils/aiClient';
+import { Provider, providerName, docsExternalEnabled, getClient, aiErrorMessage, isProviderInKz, aiConfigProblem } from '../utils/aiClient';
 import { documentInsightLines, ensureDocumentInsights } from '../utils/documentAi';
 import { ocrAvailable } from '../utils/documentText';
 
@@ -232,6 +232,8 @@ export const getScreeningStatus = async (req: AuthRequest, res: Response): Promi
     res.json({
       provider,
       enabled: provider !== 'off' && !!getClient(provider),
+      // Подсказка, что исправить в настройках сервера (показывается, когда ИИ выключен)
+      ...(provider !== 'off' && getClient(provider) ? {} : { configProblem: aiConfigProblem() ?? 'ИИ не настроен' }),
       documentsMode: docsModeFor(provider),
       missingConsents,
       dailyLimit: DAILY_LIMIT(),
@@ -251,7 +253,9 @@ export const runScreening = async (req: AuthRequest, res: Response): Promise<voi
     const provider = providerName();
     const ai = getClient(provider);
     if (provider === 'off' || !ai) {
-      res.status(503).json({ message: 'ИИ-скрининг сейчас недоступен: он не настроен на сервере. Обратитесь к администратору.' });
+      const problem = aiConfigProblem();
+      console.warn('[screening] AI is not configured:', problem);
+      res.status(503).json({ message: 'ИИ-скрининг сейчас недоступен: он не настроен на сервере. Обратитесь к администратору.', configProblem: problem });
       return;
     }
 

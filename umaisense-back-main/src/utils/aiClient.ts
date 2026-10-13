@@ -18,9 +18,12 @@ import OpenAI from 'openai';
 export type Provider = 'openai' | 'yandex' | 'local' | 'off';
 
 const isProd = () => process.env.NODE_ENV === 'production';
+// Значения из панелей хостинга часто приходят с пробелами, кавычками или переводом строки
+const env = (k: string): string => String(process.env[k] ?? '').trim().replace(/^["']|["']$/g, '').trim();
+const envTrue = (k: string): boolean => ['true', '1', 'yes', 'on'].includes(env(k).toLowerCase());
 
 export const providerName = (): Provider => {
-  const p = (process.env.AI_SCREENING_PROVIDER || (isProd() ? 'off' : 'openai')).toLowerCase();
+  const p = (env('AI_SCREENING_PROVIDER') || (isProd() ? 'off' : 'openai')).toLowerCase();
   return p === 'local' || p === 'off' || p === 'yandex' ? p : 'openai';
 };
 
@@ -36,10 +39,10 @@ export const isProviderInKz = (p: Provider): boolean => {
 };
 
 /** Разрешена ли зарубежная обработка (OpenAI или Yandex вне региона KZ) */
-export const foreignAiAllowed = () => !isProd() || process.env.ALLOW_FOREIGN_AI === 'true';
+export const foreignAiAllowed = () => !isProd() || envTrue('ALLOW_FOREIGN_AI');
 
-export const docsExternalEnabled = () => process.env.AI_SCREENING_DOCS_EXTERNAL === 'true';
-export const docsImagesExternalEnabled = () => process.env.AI_DOCS_IMAGES_EXTERNAL === 'true';
+export const docsExternalEnabled = () => envTrue('AI_SCREENING_DOCS_EXTERNAL');
+export const docsImagesExternalEnabled = () => envTrue('AI_DOCS_IMAGES_EXTERNAL');
 
 export const getClient = (p: Provider): { client: OpenAI; model: string; visionModel: string } | null => {
   if (p === 'off') return null;
@@ -61,9 +64,25 @@ export const getClient = (p: Provider): { client: OpenAI; model: string; visionM
     const model = name.startsWith('gpt://') ? name : `gpt://${folder}/${name}`;
     return { client: new OpenAI({ baseURL, apiKey, project: folder }), model, visionModel: model };
   }
-  if (!process.env.OPENAI_API_KEY) return null;
-  const model = process.env.AI_SCREENING_MODEL || 'gpt-4o-mini';
-  return { client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }), model, visionModel: process.env.AI_VISION_MODEL || model };
+  const key = env('OPENAI_API_KEY');
+  if (!key) return null;
+  const model = env('AI_SCREENING_MODEL') || 'gpt-4o-mini';
+  return { client: new OpenAI({ apiKey: key }), model, visionModel: env('AI_VISION_MODEL') || model };
+};
+
+/** Почему ИИ не работает — понятная подсказка для администратора (без значений секретов) */
+export const aiConfigProblem = (): string | null => {
+  const p = providerName();
+  if (p === 'off') {
+    return env('AI_SCREENING_PROVIDER')
+      ? 'AI_SCREENING_PROVIDER=off — ИИ выключен'
+      : 'не задана переменная AI_SCREENING_PROVIDER (на рабочем сервере ИИ по умолчанию выключен) — укажите openai';
+  }
+  if (!isProviderInKz(p) && !foreignAiAllowed()) return `ALLOW_FOREIGN_AI не равна true — ${p} работает за пределами РК и без этого флага выключен`;
+  if (p === 'openai' && !env('OPENAI_API_KEY')) return 'не задана переменная OPENAI_API_KEY';
+  if (p === 'local' && (!env('AI_LOCAL_BASE_URL') || !env('AI_LOCAL_MODEL'))) return 'не заданы AI_LOCAL_BASE_URL / AI_LOCAL_MODEL';
+  if (p === 'yandex' && (!env('AI_YANDEX_BASE_URL') || !env('AI_YANDEX_API_KEY') || !env('AI_YANDEX_FOLDER_ID'))) return 'не заданы AI_YANDEX_BASE_URL / AI_YANDEX_API_KEY / AI_YANDEX_FOLDER_ID';
+  return null;
 };
 
 /** Понятный текст для типичных ошибок ИИ */

@@ -377,8 +377,9 @@ export interface Screening {
 }
 
 export interface ScreeningStatus {
-  provider: 'openai' | 'local' | 'off';
+  provider: 'openai' | 'yandex' | 'local' | 'off';
   enabled: boolean;
+  configProblem?: string;
   documentsMode: 'none' | 'types_only' | 'text';
   missingConsents: ConsentType[];
   dailyLimit: number;

@@ -173,7 +173,12 @@ export default function ScreeningPage() {
       {/* Запуск */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
         {status && !status.enabled ? (
-          <p className="text-sm text-gray-500">ИИ-скрининг сейчас недоступен: он не настроен на сервере. Обратитесь к администратору.</p>
+          <div>
+            <p className="text-sm text-gray-500">ИИ-скрининг сейчас недоступен: он не настроен на сервере. Обратитесь к администратору.</p>
+            {status.configProblem && (
+              <p className="text-xs text-gray-400 mt-1">Для администратора: {status.configProblem}</p>
+            )}
+          </div>
         ) : (
           <>
             <button
