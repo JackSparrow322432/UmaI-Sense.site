@@ -1,0 +1,394 @@
+From 3640800a5c684899342e717728d5182433ed61fc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 14 Oct 2026 20:26:54 +0500
+Subject: [PATCH 1/2] Enforce KZ data residency at startup; gate OpenAI behind
+ AI_EXTERNAL_ENABLED
+
+- utils/dataResidency.ts: refuse to start in production if MONGO_URI or S3 point outside KZ
+- never write new files to Cloudinary when residency is enforced
+- OpenAI only with explicit AI_EXTERNAL_ENABLED=true
+- npm run check:residency for pre-deploy checks
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ DEPLOY_FREEDOM_CLOUD.md                       |   7 +
+ umaisense-back-main/.env.example              |   9 +
+ umaisense-back-main/package.json              |   3 +-
+ .../controllers/recommendations.controller.ts |  12 +-
+ umaisense-back-main/src/index.ts              |   3 +
+ .../src/scripts/check-residency.ts            |  17 ++
+ .../src/utils/dataResidency.ts                | 183 ++++++++++++++++++
+ .../src/utils/documentStorage.ts              |   4 +-
+ umaisense-back-main/src/utils/upload.ts       |   3 +
+ 9 files changed, 234 insertions(+), 7 deletions(-)
+ create mode 100644 umaisense-back-main/src/scripts/check-residency.ts
+ create mode 100644 umaisense-back-main/src/utils/dataResidency.ts
+
+diff --git a/DEPLOY_FREEDOM_CLOUD.md b/DEPLOY_FREEDOM_CLOUD.md
+index 13a13c3..3082f3f 100644
+--- a/DEPLOY_FREEDOM_CLOUD.md
++++ b/DEPLOY_FREEDOM_CLOUD.md
+@@ -253,6 +253,13 @@ rsync -a --delete dist/ deploy@lb1:/var/www/umaisense/
+ 
+ ---
+ 
++## 7a. Автоматическая проверка локализации
++
++Сервер при запуске проверяет `.env` (`src/utils/dataResidency.ts`) и **не стартует**, если MongoDB
++указывает на Atlas или внешний хост, а S3 не настроен или смотрит за пределы РК. Новые файлы в Cloudinary
++в этом режиме не пишутся, OpenAI работает только при `AI_EXTERNAL_ENABLED=true`.
++Перед деплоем: `DOTENV_CONFIG_PATH=/opt/umaisense/.env npm run check:residency`.
++
+ ## 8. Юридический чек-лист (проверить с юристом)
+ 
+ - [ ] Политика конфиденциальности на `/privacy`: реквизиты оператора, контакты.
+diff --git a/umaisense-back-main/.env.example b/umaisense-back-main/.env.example
+index 2de65e3..8993aeb 100644
+--- a/umaisense-back-main/.env.example
++++ b/umaisense-back-main/.env.example
+@@ -19,6 +19,13 @@ JWT_SECRET=
+ CONSENT_VERSION=2026-10-07
+ AUDIT_RETENTION_DAYS=1095
+ 
++# ─── Локализация данных в РК (utils/dataResidency.ts) ────────────────────────
++# KZ (по умолчанию в продакшене): сервер НЕ запустится, если база или файлы смотрят за пределы РК.
++# off — только для старого деплоя на Vercel до переезда.
++DATA_RESIDENCY=KZ
++# Ваши хосты в казахстанском ЦОД (частные адреса 10.x/192.168.x разрешены и так). Можно *.домен
++DATA_RESIDENCY_ALLOWED_HOSTS=*.umaisense.kz
++
+ # ─── MongoDB: набор реплик из 3 узлов во внутренней сети ─────────────────────
+ MONGO_URI=mongodb://umaisense:ПАРОЛЬ@10.10.0.11:27017,10.10.0.12:27017,10.10.0.13:27017/umai_sense?replicaSet=rs0&authSource=admin
+ MONGO_POOL_SIZE=20
+@@ -49,6 +56,8 @@ SMTP_USER=
+ SMTP_PASS=
+ 
+ # ─── ИИ-рекомендации (получают только обезличенные данные) ───────────────────
++# OpenAI за пределами РК: включается ТОЛЬКО флагом, одного ключа недостаточно
++AI_EXTERNAL_ENABLED=false
+ OPENAI_API_KEY=
+ 
+ # ─── Cloudinary — пока проект на Vercel (без S3) ─────────────────────────────
+diff --git a/umaisense-back-main/package.json b/umaisense-back-main/package.json
+index 49a577e..a268313 100644
+--- a/umaisense-back-main/package.json
++++ b/umaisense-back-main/package.json
+@@ -7,7 +7,8 @@
+     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
+     "build": "tsc",
+     "start": "node dist/index.js",
+-    "migrate:files": "ts-node src/scripts/migrate-files-to-s3.ts"
++    "migrate:files": "ts-node src/scripts/migrate-files-to-s3.ts",
++    "check:residency": "ts-node src/scripts/check-residency.ts"
+   },
+   "keywords": [],
+   "author": "",
+diff --git a/umaisense-back-main/src/controllers/recommendations.controller.ts b/umaisense-back-main/src/controllers/recommendations.controller.ts
+index c063067..2ed864c 100644
+--- a/umaisense-back-main/src/controllers/recommendations.controller.ts
++++ b/umaisense-back-main/src/controllers/recommendations.controller.ts
+@@ -8,13 +8,15 @@ import Emotion from '../models/Emotion';
+ import Activity from '../models/Activity';
+ import DiaryEntry from '../models/DiaryEntry';
+ import Notification from '../models/Notification';
++import { isExternalAiEnabled } from '../utils/dataResidency';
+ 
+-// ─── OpenAI client (only initialised when key is present) ────────────────────
++// ─── OpenAI client ───────────────────────────────────────────────────────────
++// OpenAI находится за пределами РК, поэтому включается ТОЛЬКО явным флагом AI_EXTERNAL_ENABLED=true
++// (одного ключа недостаточно). Без флага используются базовые рекомендации.
+ 
+ const getOpenAI = (): OpenAI | null => {
+-  const key = process.env.OPENAI_API_KEY;
+-  if (!key) return null;
+-  return new OpenAI({ apiKey: key });
++  if (!isExternalAiEnabled()) return null;
++  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY as string });
+ };
+ 
+ // ─── Formatting helpers ───────────────────────────────────────────────────────
+@@ -223,7 +225,7 @@ export const generateRecommendation = async (req: AuthRequest, res: Response): P
+         console.error('[AI] Could not parse OpenAI JSON response:', raw);
+       }
+     } else {
+-      console.warn('[AI] OPENAI_API_KEY not set — using placeholder recommendations');
++      console.warn('[AI] External AI disabled (set AI_EXTERNAL_ENABLED=true and OPENAI_API_KEY) — using placeholder recommendations');
+     }
+ 
+     const recommendation = await Recommendation.create({ childId: child._id, content });
+diff --git a/umaisense-back-main/src/index.ts b/umaisense-back-main/src/index.ts
+index 5c04f29..aacdb95 100644
+--- a/umaisense-back-main/src/index.ts
++++ b/umaisense-back-main/src/index.ts
+@@ -2,6 +2,7 @@ import 'dotenv/config';
+ import mongoose from 'mongoose';
+ import { createApp, connectDB } from './createApp';
+ import { assertProductionEnv } from './utils/env';
++import { assertDataResidency } from './utils/dataResidency';
+ import { sweepAbandonedUploads } from './controllers/documents.controller';
+ 
+ /**
+@@ -10,6 +11,8 @@ import { sweepAbandonedUploads } from './controllers/documents.controller';
+  */
+ 
+ assertProductionEnv();
++// База и файлы должны находиться в РК — иначе сервер не стартует (см. utils/dataResidency.ts)
++assertDataResidency();
+ 
+ const app = createApp();
+ const PORT = Number(process.env.PORT) || 5000;
+diff --git a/umaisense-back-main/src/scripts/check-residency.ts b/umaisense-back-main/src/scripts/check-residency.ts
+new file mode 100644
+index 0000000..a39570a
+--- /dev/null
++++ b/umaisense-back-main/src/scripts/check-residency.ts
+@@ -0,0 +1,17 @@
++/**
++ * Проверка .env перед деплоем: все ли данные остаются в РК.
++ *   npm run check:residency                  — читает .env в текущей папке
++ *   DOTENV_CONFIG_PATH=/opt/umaisense/.env npm run check:residency
++ * Код выхода 1, если есть ошибки (удобно для CI и deploy-app.sh).
++ */
++import 'dotenv/config';
++import { checkDataResidency } from '../utils/dataResidency';
++
++const env = { ...process.env, DATA_RESIDENCY: process.env.DATA_RESIDENCY || 'KZ' };
++const { errors, warnings } = checkDataResidency(env);
++
++for (const e of errors) console.log(`✗ ${e}`);
++for (const w of warnings) console.log(`! ${w}`);
++if (!errors.length) console.log('✓ База и файлы находятся в РК');
++
++process.exit(errors.length ? 1 : 0);
+diff --git a/umaisense-back-main/src/utils/dataResidency.ts b/umaisense-back-main/src/utils/dataResidency.ts
+new file mode 100644
+index 0000000..84608f4
+--- /dev/null
++++ b/umaisense-back-main/src/utils/dataResidency.ts
+@@ -0,0 +1,183 @@
++/**
++ * Локализация персональных данных в Республике Казахстан
++ * (Закон РК «О персональных данных и их защите», ст. 12 п. 2).
++ *
++ * Сервер проверяет при запуске, куда физически уходят данные, и НЕ ЗАПУСКАЕТСЯ,
++ * если база или файлы смотрят за пределы РК. Так ошибка в .env не превращается
++ * в тихую утечку данных за границу.
++ *
++ * Что считается «в РК»:
++ *   • частные адреса (10.x, 172.16–31.x, 192.168.x, localhost) — внутренняя сеть
++ *     ваших серверов в казахстанском ЦОД;
++ *   • хосты из DATA_RESIDENCY_ALLOWED_HOSTS — их вы подтверждаете сами
++ *     (например s3.umaisense.kz, mongo.servercore.kz, *.umaisense.kz).
++ * Домен .kz НЕ считается автоматически: umaisense.kz может указывать на сервер где угодно.
++ *
++ * Переменные:
++ *   DATA_RESIDENCY=KZ | off          — по умолчанию KZ в продакшене (на Vercel — off, см. ниже)
++ *   DATA_RESIDENCY_ALLOWED_HOSTS=…   — список через запятую, поддерживает *.домен
++ *   AI_EXTERNAL_ENABLED=true         — явно разрешить OpenAI (за рубежом, только обезличенные данные)
++ */
++
++type Env = Record<string, string | undefined>;
++
++export interface ResidencyReport {
++  enforced: boolean;
++  errors: string[];
++  warnings: string[];
++}
++
++// ─── Режим ───────────────────────────────────────────────────────────────────
++
++/**
++ * Проверка включена в продакшене. Исключение — старый деплой на Vercel (за рубежом по определению):
++ * там по умолчанию off с громким предупреждением, чтобы не уронить текущий прод до переезда.
++ * DATA_RESIDENCY=KZ включает проверку где угодно, DATA_RESIDENCY=off — выключает.
++ */
++export const isResidencyEnforced = (env: Env = process.env): boolean => {
++  const mode = (env.DATA_RESIDENCY || '').trim().toLowerCase();
++  if (mode === 'off') return false;
++  if (mode === 'kz') return true;
++  return env.NODE_ENV === 'production' && !env.VERCEL;
++};
++
++/** OpenAI — только по явному флагу и при наличии ключа. Один ключ в .env больше ничего не включает. */
++export const isExternalAiEnabled = (env: Env = process.env): boolean =>
++  env.AI_EXTERNAL_ENABLED === 'true' && !!env.OPENAI_API_KEY;
++
++/** Можно ли класть НОВЫЕ файлы в зарубежное хранилище (Cloudinary). В режиме KZ — нет. */
++export const isForeignStorageAllowed = (env: Env = process.env): boolean => !isResidencyEnforced(env);
++
++// ─── Проверка адресов ────────────────────────────────────────────────────────
++
++const isPrivateIPv4 = (host: string): boolean => {
++  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
++  if (!m) return false;
++  const [a, b] = [Number(m[1]), Number(m[2])];
++  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
++};
++
++const allowList = (env: Env): string[] =>
++  (env.DATA_RESIDENCY_ALLOWED_HOSTS || '')
++    .split(',')
++    .map((h) => h.trim().toLowerCase())
++    .filter(Boolean);
++
++export const isHostInKz = (rawHost: string, env: Env = process.env): boolean => {
++  const host = rawHost.trim().toLowerCase().replace(/^\[|\]$/g, '');
++  if (!host) return false;
++  if (host === 'localhost' || host === '::1' || isPrivateIPv4(host)) return true;
++  // Имена сервисов в docker-compose (mongo, garage) — тоже внутренняя сеть
++  if (!host.includes('.') && !host.includes(':')) return true;
++  return allowList(env).some((rule) =>
++    rule.startsWith('*.') ? host.endsWith(rule.slice(1)) : host === rule,
++  );
++};
++
++const hostOfUrl = (url: string): string | null => {
++  try { return new URL(url).hostname; } catch { return null; }
++};
++
++/** Хосты из строки подключения MongoDB (поддерживает список host1:port,host2:port) */
++export const mongoHosts = (uri: string): { srv: boolean; hosts: string[] } => {
++  const m = uri.match(/^mongodb(\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)/i);
++  if (!m) return { srv: false, hosts: [] };
++  const hosts = m[2].split(',').map((h) => {
++    const bracket = h.match(/^\[([^\]]+)\]/); // IPv6
++    return (bracket ? bracket[1] : h.replace(/:\d+$/, '')).toLowerCase();
++  });
++  return { srv: !!m[1], hosts };
++};
++
++// ─── Отчёт ───────────────────────────────────────────────────────────────────
++
++export const checkDataResidency = (env: Env = process.env): ResidencyReport => {
++  const enforced = isResidencyEnforced(env);
++  const errors: string[] = [];
++  const warnings: string[] = [];
++  const notInKz = (what: string, host: string) =>
++    `${what}: хост «${host}» не подтверждён как находящийся в РК. ` +
++    'Используйте частный адрес сервера в казахстанском ЦОД или добавьте хост в DATA_RESIDENCY_ALLOWED_HOSTS.';
++
++  // 1. База данных
++  const mongo = env.MONGO_URI || '';
++  if (!mongo) {
++    errors.push('MONGO_URI не задан');
++  } else {
++    const { srv, hosts } = mongoHosts(mongo);
++    if (hosts.some((h) => h.endsWith('.mongodb.net'))) {
++      errors.push('MONGO_URI указывает на MongoDB Atlas (*.mongodb.net) — серверы Atlas находятся за пределами РК');
++    } else if (srv) {
++      errors.push('MONGO_URI в формате mongodb+srv:// — адреса узлов неизвестны заранее. Укажите узлы явно: mongodb://10.10.0.11:27017,…');
++    } else if (!hosts.length) {
++      errors.push('MONGO_URI: не удалось разобрать адреса узлов');
++    } else {
++      hosts.filter((h) => !isHostInKz(h, env)).forEach((h) => errors.push(notInKz('MONGO_URI', h)));
++    }
++  }
++
++  // 2. Файлы (документы, фото)
++  const s3Ready = !!env.S3_ENDPOINT && !!env.S3_ACCESS_KEY_ID && !!env.S3_SECRET_ACCESS_KEY && !!env.S3_PRIVATE_BUCKET;
++  if (!s3Ready) {
++    errors.push('S3_* не заданы: без хранилища в РК документы и фото ушли бы в Cloudinary (за рубежом) или на локальный диск');
++  } else {
++    const urls: [string, string | undefined][] = [
++      ['S3_ENDPOINT', env.S3_ENDPOINT],
++      ['S3_PUBLIC_ENDPOINT', env.S3_PUBLIC_ENDPOINT],
++      ['S3_PUBLIC_URL', env.S3_PUBLIC_URL],
++    ];
++    for (const [name, url] of urls) {
++      if (!url) continue;
++      const host = hostOfUrl(url);
++      if (!host) errors.push(`${name}: некорректный адрес «${url}»`);
++      else if (!isHostInKz(host, env)) errors.push(notInKz(name, host));
++    }
++  }
++
++  if (env.CLOUDINARY_CLOUD_NAME) {
++    warnings.push(
++      'Заданы CLOUDINARY_* (хранилище за рубежом). Новые файлы туда не пишутся; ключи нужны только для ' +
++      'npm run migrate:files. После переноса удалите их из .env и файлы в консоли Cloudinary.',
++    );
++  }
++
++  // 3. Сервисы, которые получают данные за пределами РК
++  if (isExternalAiEnabled(env)) {
++    warnings.push('AI_EXTERNAL_ENABLED=true: обезличенные данные уходят в OpenAI (за рубежом) — нужна правовая оценка трансграничной передачи');
++  } else if (env.OPENAI_API_KEY) {
++    warnings.push('OPENAI_API_KEY задан, но AI_EXTERNAL_ENABLED не равен true — ИИ выключен, используются базовые рекомендации');
++  }
++
++  const smtp = (env.SMTP_HOST || '').trim();
++  if (env.SMTP_USER && smtp && !isHostInKz(smtp, env)) {
++    warnings.push(`SMTP_HOST «${smtp}» не подтверждён как находящийся в РК: e-mail адреса и текст писем проходят через него`);
++  }
++
++  return { enforced, errors, warnings };
++};
++
++/**
++ * Вызывается при старте. В режиме KZ ошибки останавливают сервер,
++ * в остальных режимах — только печатаются.
++ */
++export const assertDataResidency = (env: Env = process.env): ResidencyReport => {
++  const report = checkDataResidency(env);
++  report.warnings.forEach((w) => console.warn(`[data-residency] ${w}`));
++
++  if (!report.enforced) {
++    if (env.NODE_ENV === 'production') {
++      console.warn('[data-residency] Проверка ВЫКЛЮЧЕНА (DATA_RESIDENCY=off или Vercel). Данные могут храниться за пределами РК.');
++      report.errors.forEach((e) => console.warn(`[data-residency] ${e}`));
++    }
++    return report;
++  }
++
++  if (report.errors.length) {
++    throw new Error(
++      'Нарушена локализация данных в РК — сервер не запущен:\n' +
++      report.errors.map((e) => `  • ${e}`).join('\n'),
++    );
++  }
++  console.log('[data-residency] OK: база и файлы находятся в РК');
++  return report;
++};
+diff --git a/umaisense-back-main/src/utils/documentStorage.ts b/umaisense-back-main/src/utils/documentStorage.ts
+index 17fd433..797a960 100644
+--- a/umaisense-back-main/src/utils/documentStorage.ts
++++ b/umaisense-back-main/src/utils/documentStorage.ts
+@@ -1,4 +1,5 @@
+ import { v2 as cloudinary } from 'cloudinary';
++import { isForeignStorageAllowed } from './dataResidency';
+ import {
+   isS3Enabled, presignPrivateUpload, presignPrivateDownload, headPrivateObject,
+   readPrivateHead, deletePrivateObject,
+@@ -40,7 +41,8 @@ const cloudinaryReady = (): boolean => {
+ /** Хранилище для НОВЫХ документов */
+ export const activeProvider = (): StorageProvider | null => {
+   if (isS3Enabled()) return 's3';
+-  if (cloudinaryReady()) return 'cloudinary';
++  // Cloudinary — за рубежом: в режиме локализации РК новые документы туда не пишутся никогда
++  if (isForeignStorageAllowed() && cloudinaryReady()) return 'cloudinary';
+   return null;
+ };
+ 
+diff --git a/umaisense-back-main/src/utils/upload.ts b/umaisense-back-main/src/utils/upload.ts
+index 22eff48..07a5351 100644
+--- a/umaisense-back-main/src/utils/upload.ts
++++ b/umaisense-back-main/src/utils/upload.ts
+@@ -4,11 +4,14 @@ import fs from 'fs';
+ import { randomUUID } from 'crypto';
+ import { v2 as cloudinary } from 'cloudinary';
+ import { isPublicS3Enabled, putPublicObject } from './storage';
++import { isForeignStorageAllowed } from './dataResidency';
+ import { IMAGE_TYPES, MAX_IMAGE_SIZE, matchesSignature, extFor } from './fileTypes';
+ 
+ // ─── Cloudinary config ────────────────────────────────────────────────────────
+ 
++// В режиме локализации РК (DATA_RESIDENCY) картинки в Cloudinary (за рубежом) не загружаются
+ const cloudinaryEnabled =
++  isForeignStorageAllowed() &&
+   !!process.env.CLOUDINARY_CLOUD_NAME &&
+   !!process.env.CLOUDINARY_API_KEY &&
+   !!process.env.CLOUDINARY_API_SECRET;
+-- 
+2.43.0
+

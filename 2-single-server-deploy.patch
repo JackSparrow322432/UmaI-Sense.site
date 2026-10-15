@@ -1,0 +1,375 @@
+From 4689ab2da74c7632821e7a25e250f68dd6104410 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 15 Oct 2026 11:12:08 +0500
+Subject: [PATCH 2/2] Add single-server deploy (MongoDB + Garage + API + Caddy)
+ for test/starter VPS
+
+- deploy/single/install.sh: generates secrets, configures Garage, builds and starts everything
+- Caddy: automatic HTTPS, SPA, /api, /media and same-origin S3 (no CORS needed)
+- tuned for 1 GB RAM + swap
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ .dockerignore                      |   4 +
+ .gitignore                         |   4 +
+ deploy/single/Caddyfile            |  48 ++++++++++
+ deploy/single/Dockerfile.web       |  14 +++
+ deploy/single/docker-compose.yml   |  65 ++++++++++++++
+ deploy/single/garage.toml.template |  28 ++++++
+ deploy/single/install.sh           | 137 +++++++++++++++++++++++++++++
+ 7 files changed, 300 insertions(+)
+ create mode 100644 .dockerignore
+ create mode 100644 deploy/single/Caddyfile
+ create mode 100644 deploy/single/Dockerfile.web
+ create mode 100644 deploy/single/docker-compose.yml
+ create mode 100644 deploy/single/garage.toml.template
+ create mode 100755 deploy/single/install.sh
+
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..1e8ba62
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,4 @@
++**/node_modules
++**/dist
++.git
++**/.env
+diff --git a/.gitignore b/.gitignore
+index b5bd3a2..64c6e2c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -9,3 +9,7 @@ uploads/
+ deploy/**/.env
+ backup.env
+ mongo-keyfile
++
++# Секреты одиночного сервера
++deploy/single/.env
++deploy/single/garage.toml
+diff --git a/deploy/single/Caddyfile b/deploy/single/Caddyfile
+new file mode 100644
+index 0000000..d3f5ad1
+--- /dev/null
++++ b/deploy/single/Caddyfile
+@@ -0,0 +1,48 @@
++# Caddy сам получает и продлевает сертификат Let's Encrypt для {$DOMAIN}.
++# Всё на одном домене: сайт, /api, /media и S3 — поэтому CORS для загрузки документов не нужен.
++{$DOMAIN} {
++	encode zstd gzip
++
++	header {
++		Strict-Transport-Security "max-age=31536000; includeSubDomains"
++		X-Content-Type-Options nosniff
++		Referrer-Policy strict-origin-when-cross-origin
++		X-Frame-Options DENY
++		-Server
++	}
++
++	# S3 (Garage) по одноразовым ссылкам: браузер загружает/скачивает документы напрямую.
++	# Host не меняется (Caddy передаёт его как есть) — на него рассчитана подпись ссылки.
++	@s3 path /umaisense-documents/* /umaisense-public/*
++	handle @s3 {
++		request_body {
++			max_size 25MB
++		}
++		reverse_proxy garage:3900
++	}
++
++	# Публичные картинки (фото профиля, обложки) — веб-раздача бакета umaisense-public
++	handle_path /media/* {
++		reverse_proxy garage:3902 {
++			header_up Host umaisense-public.web.garage.internal
++			header_down -Set-Cookie
++		}
++		header Cache-Control "public, max-age=2592000"
++	}
++
++	handle /api/* {
++		request_body {
++			max_size 6MB
++		}
++		reverse_proxy api:5000
++	}
++
++	# Фронтенд (SPA)
++	handle {
++		root * /srv
++		@assets path /assets/*
++		header @assets Cache-Control "public, max-age=31536000, immutable"
++		try_files {path} /index.html
++		file_server
++	}
++}
+diff --git a/deploy/single/Dockerfile.web b/deploy/single/Dockerfile.web
+new file mode 100644
+index 0000000..9c5b2d2
+--- /dev/null
++++ b/deploy/single/Dockerfile.web
+@@ -0,0 +1,14 @@
++# Фронтенд (React/Vite) + Caddy: HTTPS с автоматическим сертификатом, раздача статики, прокси на API и S3.
++# Контекст сборки — корень репозитория.
++FROM node:22-alpine AS build
++WORKDIR /app
++COPY umiasense-front-main/package.json umiasense-front-main/package-lock.json ./
++RUN npm ci --no-audit --no-fund
++COPY umiasense-front-main/ ./
++# На сервере с 1 ГБ RAM сборке нужен swap; ограничиваем память Node
++ENV NODE_OPTIONS=--max-old-space-size=1024
++RUN npm run build
++
++FROM caddy:2-alpine
++COPY --from=build /app/dist /srv
++COPY deploy/single/Caddyfile /etc/caddy/Caddyfile
+diff --git a/deploy/single/docker-compose.yml b/deploy/single/docker-compose.yml
+new file mode 100644
+index 0000000..06e8145
+--- /dev/null
++++ b/deploy/single/docker-compose.yml
+@@ -0,0 +1,65 @@
++# UmaiSense на ОДНОМ сервере (тест / старт): MongoDB + Garage (S3) + API + Caddy (HTTPS + фронтенд).
++# Рассчитано даже на 1 ГБ RAM + 2 ГБ swap. Запуск и первичная настройка — ./install.sh
++#
++# Наружу открыты только 80/443 (Caddy). MongoDB, Garage и API доступны лишь внутри сети Docker:
++# Docker обходит ufw, поэтому остальные порты НЕ публикуются вовсе.
++name: umaisense
++
++services:
++  mongo:
++    image: mongo:7.0
++    command: ["--wiredTigerCacheSizeGB=0.25"]   # на 1 ГБ RAM; на 4 ГБ можно 1
++    environment:
++      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
++      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
++    volumes:
++      - /srv/umaisense/mongo:/data/db
++    restart: always
++    healthcheck:
++      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
++      interval: 15s
++      timeout: 5s
++      retries: 5
++      start_period: 30s
++    logging: &logging
++      driver: json-file
++      options: { max-size: "10m", max-file: "3" }
++
++  garage:
++    image: dxflrs/garage:v2.1.0
++    volumes:
++      - ./garage.toml:/etc/garage.toml:ro
++      - /srv/umaisense/garage/meta:/var/lib/garage/meta
++      - /srv/umaisense/garage/data:/var/lib/garage/data
++    restart: always
++    logging: *logging
++
++  api:
++    build:
++      context: ../../umaisense-back-main
++    image: umaisense-api:latest
++    env_file: ./.env
++    depends_on:
++      mongo: { condition: service_healthy }
++      garage: { condition: service_started }
++    restart: always
++    stop_grace_period: 20s
++    logging: *logging
++
++  web:
++    build:
++      context: ../..
++      dockerfile: deploy/single/Dockerfile.web
++    image: umaisense-web:latest
++    environment:
++      DOMAIN: ${DOMAIN}
++    ports:
++      - "80:80"
++      - "443:443"
++      - "443:443/udp"
++    volumes:
++      - /srv/umaisense/caddy/data:/data       # сертификаты Let's Encrypt
++      - /srv/umaisense/caddy/config:/config
++    depends_on: [api, garage]
++    restart: always
++    logging: *logging
+diff --git a/deploy/single/garage.toml.template b/deploy/single/garage.toml.template
+new file mode 100644
+index 0000000..ab22833
+--- /dev/null
++++ b/deploy/single/garage.toml.template
+@@ -0,0 +1,28 @@
++# Garage на одном узле: replication_factor = 1 (одна копия; надёжность — за счёт ежедневных бэкапов).
++# При переходе на 3 узла — deploy/data/garage.toml (replication_factor = 3).
++metadata_dir = "/var/lib/garage/meta"
++data_dir = "/var/lib/garage/data"
++db_engine = "lmdb"
++metadata_auto_snapshot_interval = "6h"
++
++replication_factor = 1
++consistency_mode = "consistent"
++
++rpc_bind_addr = "[::]:3901"
++rpc_public_addr = "127.0.0.1:3901"
++rpc_secret = "__RPC_SECRET__"
++
++[s3_api]
++s3_region = "garage"
++api_bind_addr = "[::]:3900"
++root_domain = ".s3.garage.internal"
++
++[s3_web]
++bind_addr = "[::]:3902"
++root_domain = ".web.garage.internal"
++index = "index.html"
++
++[admin]
++api_bind_addr = "127.0.0.1:3903"
++admin_token = "__ADMIN_TOKEN__"
++metrics_token = "__METRICS_TOKEN__"
+diff --git a/deploy/single/install.sh b/deploy/single/install.sh
+new file mode 100755
+index 0000000..e542c2d
+--- /dev/null
++++ b/deploy/single/install.sh
+@@ -0,0 +1,137 @@
++#!/usr/bin/env bash
++# Первичная установка UmaiSense на одном сервере.
++#
++#   cd /opt/umaisense/deploy/single
++#   sudo ./install.sh app.umaisense.kz admin@example.com
++#
++# Перед запуском: DNS-запись A для домена указывает на IP этого сервера, ufw открыл 80/443.
++# Повторный запуск безопасен: секреты и уже созданные ключи/бакеты не пересоздаются.
++set -euo pipefail
++cd "$(dirname "$0")"
++
++DOMAIN="${1:-}"
++ADMIN_EMAIL="${2:-}"
++if [[ -z "$DOMAIN" || -z "$ADMIN_EMAIL" ]]; then
++  echo "Использование: ./install.sh <домен> <email администратора>"
++  echo "Пример:        ./install.sh app.umaisense.kz admin@umaisense.kz"
++  exit 1
++fi
++
++say() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
++hex() { openssl rand -hex "$1"; }
++DC="docker compose"
++G="$DC exec -T garage /garage"
++
++# ─── 1. Секреты (создаются один раз) ─────────────────────────────────────────
++mkdir -p /srv/umaisense/{mongo,garage/meta,garage/data,caddy/data,caddy/config}
++
++if [[ ! -f garage.toml ]]; then
++  say "Создаю garage.toml"
++  sed -e "s/__RPC_SECRET__/$(hex 32)/" \
++      -e "s/__ADMIN_TOKEN__/$(hex 32)/" \
++      -e "s/__METRICS_TOKEN__/$(hex 32)/" garage.toml.template > garage.toml
++  chmod 600 garage.toml
++fi
++
++if [[ ! -f .env ]]; then
++  say "Создаю .env с новыми секретами"
++  MONGO_PASS=$(hex 24)
++  ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)
++  S3_KEY_ID="GK$(hex 12)"
++  S3_SECRET=$(hex 32)
++  cat > .env <<EOF
++# ─── Создан install.sh $(date +%F). Права 600, в git не добавлять ───
++DOMAIN=$DOMAIN
++MONGO_ROOT_USER=umaisense
++MONGO_ROOT_PASSWORD=$MONGO_PASS
++
++NODE_ENV=production
++PORT=5000
++TRUST_PROXY=1
++CLIENT_URL=https://$DOMAIN
++ALLOW_VERCEL_PREVIEWS=false
++RATE_LIMIT_PER_MINUTE=600
++
++JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
++CONSENT_VERSION=2026-10-07
++AUDIT_RETENTION_DAYS=1095
++
++# Локализация данных в РК: сервер не стартует, если база или файлы за пределами РК
++DATA_RESIDENCY=KZ
++DATA_RESIDENCY_ALLOWED_HOSTS=$DOMAIN
++
++MONGO_URI=mongodb://umaisense:$MONGO_PASS@mongo:27017/umai_sense?authSource=admin
++MONGO_POOL_SIZE=10
++
++S3_ENDPOINT=http://garage:3900
++S3_PUBLIC_ENDPOINT=https://$DOMAIN
++S3_REGION=garage
++S3_FORCE_PATH_STYLE=true
++S3_ACCESS_KEY_ID=$S3_KEY_ID
++S3_SECRET_ACCESS_KEY=$S3_SECRET
++S3_PRIVATE_BUCKET=umaisense-documents
++S3_PUBLIC_BUCKET=umaisense-public
++S3_PUBLIC_URL=https://$DOMAIN/media
++
++ADMIN_EMAIL=$ADMIN_EMAIL
++ADMIN_PASSWORD=$ADMIN_PASSWORD
++
++# Почта для кодов входа (OTP). Без неё регистрация по коду работать не будет.
++SMTP_HOST=
++SMTP_PORT=587
++SMTP_USER=
++SMTP_PASS=
++
++# OpenAI (за рубежом) — выключен. Включать только с правовой оценкой
++AI_EXTERNAL_ENABLED=false
++OPENAI_API_KEY=
++EOF
++  chmod 600 .env
++  echo "Пароль администратора ($ADMIN_EMAIL): $ADMIN_PASSWORD  — сохраните его, он есть и в .env"
++fi
++
++# docker compose читает DOMAIN и MONGO_ROOT_* из .env рядом с docker-compose.yml
++set -a; source .env; set +a
++
++# ─── 2. База и хранилище ─────────────────────────────────────────────────────
++say "Запускаю MongoDB и Garage"
++$DC up -d mongo garage
++
++echo -n "Жду Garage"
++for _ in $(seq 1 30); do
++  $G status >/dev/null 2>&1 && break
++  echo -n "."; sleep 2
++done
++echo
++
++if [[ ! -f /srv/umaisense/.garage-initialized ]]; then
++  say "Настраиваю Garage: раскладка, ключ, бакеты"
++  NODE_ID=$($G node id -q | cut -d@ -f1)
++  $G layout assign -z dc1 -c 15G "$NODE_ID"
++  $G layout apply --version 1
++  $G key import --yes -n umaisense-app "$S3_ACCESS_KEY_ID" "$S3_SECRET_ACCESS_KEY"
++  for b in umaisense-documents umaisense-public; do
++    $G bucket create "$b"
++    $G bucket allow --read --write --owner "$b" --key umaisense-app
++  done
++  $G bucket website --allow umaisense-public
++  touch /srv/umaisense/.garage-initialized
++fi
++
++# ─── 3. Приложение ───────────────────────────────────────────────────────────
++say "Собираю и запускаю API и сайт (на 1 ГБ RAM сборка фронтенда идёт 5–10 минут)"
++$DC build api
++$DC build web
++$DC up -d
++
++say "Проверка"
++sleep 10
++$DC ps
++if $DC exec -T api wget -qO- http://127.0.0.1:5000/api/health/live >/dev/null 2>&1; then
++  echo "✓ API работает"
++else
++  echo "✗ API не отвечает — смотрите: docker compose logs api --tail 50"
++fi
++echo
++echo "Откройте https://$DOMAIN (сертификат выпускается при первом заходе, до минуты)."
++echo "Логи: docker compose logs -f   |   Перезапуск после git pull: docker compose up -d --build"
+-- 
+2.43.0
+
