@@ -1,0 +1,28 @@
+From 42ea9780756fb0fced3371ad0c89a247ae859bf9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 20 Oct 2026 16:04:04 +0500
+Subject: [PATCH] Privacy policy: name the operator company instead of its
+ director
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ umiasense-front-main/src/pages/legal/PrivacyPage.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/umiasense-front-main/src/pages/legal/PrivacyPage.tsx b/umiasense-front-main/src/pages/legal/PrivacyPage.tsx
+index af1d292..82e4888 100644
+--- a/umiasense-front-main/src/pages/legal/PrivacyPage.tsx
++++ b/umiasense-front-main/src/pages/legal/PrivacyPage.tsx
+@@ -12,7 +12,7 @@ const VERSION_HUMAN = "20 октября 2026 г.";
+ const SECTIONS: { h: string; t: string }[] = [
+   {
+     "h": "1. Оператор",
+-    "t": "Оператор и собственник базы: ТОО «Ski Park Pioneer», БИН 150140005846, юридический и фактический адрес: Республика Казахстан, г. Алматы, Медеуский р-н, ул. Алма Тау, дом 27. Контакт для обращений по вопросам персональных данных: arna.z@mail.ru. Ответственный за организацию обработки персональных данных: директор ТОО «Ski Park Pioneer» Каратай Мурат Насибуллаулы (arna.z@mail.ru)."
++    "t": "Оператор и собственник базы: ТОО «Ski Park Pioneer», БИН 150140005846, юридический и фактический адрес: Республика Казахстан, г. Алматы, Медеуский р-н, ул. Алма Тау, дом 27. Контакт для обращений по вопросам персональных данных: arna.z@mail.ru. Ответственный за организацию обработки персональных данных назначается оператором; обращения к нему направляются на arna.z@mail.ru."
+   },
+   {
+     "h": "2. Категории данных",
+-- 
+2.43.0
+
