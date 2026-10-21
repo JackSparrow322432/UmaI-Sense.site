@@ -1,0 +1,34 @@
+From b0a18077c548c7ea02ccd2d3d34f30f43f00fe2d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 15:05:39 +0500
+Subject: [PATCH] =?UTF-8?q?Documents=20page:=20prefix=20hint=20with=20'?=
+ =?UTF-8?q?=D0=97=D0=B0=D0=B3=D1=80=D1=83=D0=B7=D0=B8=D1=82=D0=B5=20=D0=B4?=
+ =?UTF-8?q?=D0=BE=D0=BA=D1=83=D0=BC=D0=B5=D0=BD=D1=82=D1=8B:'?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ umiasense-front-main/src/pages/documents/DocumentsPage.tsx | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/umiasense-front-main/src/pages/documents/DocumentsPage.tsx b/umiasense-front-main/src/pages/documents/DocumentsPage.tsx
+index 4b8491c..7c2ef10 100644
+--- a/umiasense-front-main/src/pages/documents/DocumentsPage.tsx
++++ b/umiasense-front-main/src/pages/documents/DocumentsPage.tsx
+@@ -197,8 +197,8 @@ export default function DocumentsPage() {
+       <div>
+         <h1 className="text-xl font-bold text-gray-900">📄 Документы</h1>
+         <p className="text-xs text-gray-400 mt-1">
+-          Справка от врача невропатолога или психиатра на фирменном бланке гос мед учреждения
+-          с печатью и подписью руководителя учреждения и врача.
++          Загрузите документы: Справка от врача невропатолога или психиатра на фирменном бланке
++          гос мед учреждения с печатью и подписью руководителя учреждения и врача.
+         </p>
+       </div>
+ 
+-- 
+2.43.0
+
