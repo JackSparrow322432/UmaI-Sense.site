@@ -1,0 +1,203 @@
+From b17facd031030aa8f3f9a24175f0e458af464671 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 15:32:34 +0500
+Subject: [PATCH] =?UTF-8?q?Notifications=20open=20the=20related=20page;=20?=
+ =?UTF-8?q?home=20'=D0=94=D0=BE=D0=B1=D0=B0=D0=B2=D0=B8=D1=82=D1=8C=20?=
+ =?UTF-8?q?=D1=80=D0=B5=D0=B1=D1=91=D0=BD=D0=BA=D0=B0'?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- GET /api/notifications adds a computed link per notification (task, article, requests,
+  schedule, child diary/recommendations, child profile).
+- Notifications page and home banner: click marks as read and navigates.
+- Home 'Дети' section: '+ Добавить ребёнка'.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ .../controllers/notifications.controller.ts   | 37 ++++++++++++++++++-
+ .../src/pages/home/HomePage.tsx               | 25 +++++++++++--
+ .../pages/notifications/NotificationsPage.tsx | 18 +++++----
+ umiasense-front-main/src/types/index.ts       |  2 +
+ 4 files changed, 69 insertions(+), 13 deletions(-)
+
+diff --git a/umaisense-back-main/src/controllers/notifications.controller.ts b/umaisense-back-main/src/controllers/notifications.controller.ts
+index 211f9ba..76616fe 100644
+--- a/umaisense-back-main/src/controllers/notifications.controller.ts
++++ b/umaisense-back-main/src/controllers/notifications.controller.ts
+@@ -1,13 +1,46 @@
+ import { Response } from 'express';
+ import { AuthRequest } from '../types';
+ import Notification from '../models/Notification';
++import DiaryEntry from '../models/DiaryEntry';
++import Recommendation from '../models/Recommendation';
++
++/**
++ * Куда ведёт уведомление при нажатии. Для записей дневника и ИИ-советов нужен id ребёнка —
++ * берём его из связанной записи одним запросом на тип.
++ */
++const linkFor = (n: any, role: string | undefined, childOf: Map<string, string>): string | null => {
++  const id = n.relatedId ? String(n.relatedId) : '';
++  switch (n.type) {
++    case 'new_task':
++    case 'task_rated':        return id ? (role === 'admin' ? `/admin/tasks/${id}/submissions` : `/tasks/${id}`) : '/tasks';
++    case 'new_article':       return id ? `/articles/${id}` : '/articles';
++    case 'enrollment_update': return role === 'admin' ? '/admin/requests' : '/requests';
++    case 'trainer_assigned':
++    case 'session_cancelled': return role === 'admin' ? '/admin/schedule' : '/schedule';
++    case 'invite_accepted':   return id ? `/children/${id}` : '/children';
++    case 'diary_entry':       return childOf.get(id) ? `/children/${childOf.get(id)}/diary` : '/children';
++    case 'ai_recommendation': return childOf.get(id) ? `/children/${childOf.get(id)}/recommendations` : '/children';
++    case 'emotion_reminder':  return '/children';
++    default:                  return null;
++  }
++};
+ 
+ export const getNotifications = async (req: AuthRequest, res: Response): Promise<void> => {
+   try {
+     const notifications = await Notification.find({ userId: req.user!.id })
+       .sort({ createdAt: -1 })
+-      .limit(50);
+-    res.json(notifications);
++      .limit(50)
++      .lean();
++
++    const ids = (t: string) => notifications.filter((n: any) => n.type === t && n.relatedId).map((n: any) => n.relatedId);
++    const [diary, recs] = await Promise.all([
++      DiaryEntry.find({ _id: { $in: ids('diary_entry') } }).select('childId').lean(),
++      Recommendation.find({ _id: { $in: ids('ai_recommendation') } }).select('childId').lean(),
++    ]);
++    const childOf = new Map<string, string>();
++    for (const r of [...diary, ...recs] as any[]) childOf.set(String(r._id), String(r.childId));
++
++    res.json(notifications.map((n: any) => ({ ...n, link: linkFor(n, req.user?.role, childOf) })));
+   } catch {
+     res.status(500).json({ message: 'Server error' });
+   }
+diff --git a/umiasense-front-main/src/pages/home/HomePage.tsx b/umiasense-front-main/src/pages/home/HomePage.tsx
+index a725acd..945b797 100644
+--- a/umiasense-front-main/src/pages/home/HomePage.tsx
++++ b/umiasense-front-main/src/pages/home/HomePage.tsx
+@@ -1,5 +1,5 @@
+ import { useEffect, useState, useMemo } from 'react';
+-import { Link } from 'react-router-dom';
++import { Link, useNavigate } from 'react-router-dom';
+ import { toast } from 'sonner';
+ import { childrenApi, emotionsApi, activitiesApi, diaryApi, notificationsApi } from '../../api';
+ import type { Child, Emotion, Activity, DiaryEntry, Notification, MoodType, ActivityCategory, DiaryTag } from '../../types';
+@@ -144,6 +144,15 @@ export default function HomePage() {
+   // ─── Derived data ────────────────────────────────────────────────────────
+ 
+   const unreadNotifs = useMemo(() => notifications.filter((n) => !n.read), [notifications]);
++  const navigate = useNavigate();
++  // Нажатие на уведомление: отмечаем прочитанным и открываем связанную страницу
++  const openNotif = (n: Notification) => {
++    if (!n.read) {
++      setNotifications((prev) => prev.map((x) => (x._id === n._id ? { ...x, read: true } : x)));
++      notificationsApi.markRead(n._id).catch(() => {});
++    }
++    navigate(n.link || '/notifications');
++  };
+ 
+   const todayStats = useMemo(() => {
+     let emotions = 0, activities = 0, diary = 0;
+@@ -251,7 +260,12 @@ export default function HomePage() {
+           </div>
+           <div className="space-y-3">
+             {unreadNotifs.slice(0, 2).map((n) => (
+-              <div key={n._id} className="flex items-start gap-3">
++              <button
++                key={n._id}
++                type="button"
++                onClick={() => openNotif(n)}
++                className="w-full flex items-start gap-3 text-left rounded-lg -mx-2 px-2 py-1 hover:bg-gray-50 transition-colors"
++              >
+                 <div className="w-6 h-6 rounded-md bg-orange-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#E07628" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+@@ -262,7 +276,10 @@ export default function HomePage() {
+                   <p className="text-sm text-gray-700 leading-relaxed line-clamp-2">{n.message}</p>
+                   <p className="text-xs text-gray-400 mt-0.5">{timeAgo(n.createdAt)}</p>
+                 </div>
+-              </div>
++                {n.link && (
++                  <svg className="flex-shrink-0 mt-1.5 text-gray-300" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
++                )}
++              </button>
+             ))}
+           </div>
+           {unreadNotifs.length > 2 && (
+@@ -287,7 +304,7 @@ export default function HomePage() {
+             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+             </svg>
+-            Добавить
++            Добавить ребёнка
+           </Link>
+         </div>
+ 
+diff --git a/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx b/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
+index a705bf2..f9280d0 100644
+--- a/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
++++ b/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
+@@ -133,13 +133,14 @@ export default function NotificationsPage() {
+       .finally(() => setLoading(false));
+   }, []);
+ 
+-  const handleMarkOne = async (n: Notification) => {
+-    if (n.read) return;
+-    try {
+-      await notificationsApi.markRead(n._id);
++  // Нажатие: отмечаем прочитанным и переходим на связанную страницу
++  const handleOpen = async (n: Notification) => {
++    if (!n.read) {
+       setNotifications((prev) => prev.map((x) => x._id === n._id ? { ...x, read: true } : x));
+       setUnreadCount(Math.max(0, unread - 1));
+-    } catch { /* silent */ }
++      notificationsApi.markRead(n._id).catch(() => {});
++    }
++    if (n.link) navigate(n.link);
+   };
+ 
+   const handleMarkAll = async () => {
+@@ -211,7 +212,7 @@ export default function NotificationsPage() {
+             return (
+               <button
+                 key={n._id}
+-                onClick={() => handleMarkOne(n)}
++                onClick={() => handleOpen(n)}
+                 className={`w-full flex items-start gap-3 px-4 py-4 text-left transition ${
+                   n.read ? 'hover:bg-gray-50/60' : 'bg-[#FFFBF7] hover:bg-[#FFF3EA]/60'
+                 }`}
+@@ -232,10 +233,13 @@ export default function NotificationsPage() {
+                   <p className="text-[10px] text-gray-400 mt-1">{timeAgo(n.createdAt)}</p>
+                 </div>
+ 
+-                {/* Unread dot */}
++                {/* Unread dot + переход */}
+                 {!n.read && (
+                   <span className="w-2 h-2 rounded-full bg-[#E07628] flex-shrink-0 mt-2" />
+                 )}
++                {n.link && (
++                  <svg className="flex-shrink-0 mt-2 text-gray-300" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
++                )}
+               </button>
+             );
+           })}
+diff --git a/umiasense-front-main/src/types/index.ts b/umiasense-front-main/src/types/index.ts
+index b4fda10..78d1a2f 100644
+--- a/umiasense-front-main/src/types/index.ts
++++ b/umiasense-front-main/src/types/index.ts
+@@ -202,6 +202,8 @@ export interface Notification {
+   message: string;
+   read: boolean;
+   relatedId?: string;
++  /** Куда ведёт уведомление (вычисляет сервер) */
++  link?: string | null;
+   createdAt: string;
+ }
+ 
+-- 
+2.43.0
+
