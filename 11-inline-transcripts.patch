@@ -1,0 +1,220 @@
+From 1d6074892643483b34f926994258929eb486fbfb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 14:50:24 +0500
+Subject: [PATCH] Admin child page: show each document's transcript inline
+
+- GET /api/admin/children/:childId/documents returns the cached transcript (up to 20k chars);
+  documents without one are queued for extraction, the page refreshes until ready.
+- Transcript view is written to the access log (at most once per 30 min per document).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ .../src/controllers/admin.controller.ts       |  33 ++++-
+ .../admin/components/ChildRecordsAdmin.tsx    | 117 ++++++++++++++----
+ 2 files changed, 120 insertions(+), 30 deletions(-)
+
+diff --git a/umaisense-back-main/src/controllers/admin.controller.ts b/umaisense-back-main/src/controllers/admin.controller.ts
+index 9f6741b..c9577a5 100644
+--- a/umaisense-back-main/src/controllers/admin.controller.ts
++++ b/umaisense-back-main/src/controllers/admin.controller.ts
+@@ -9,7 +9,7 @@ import AuditLog from '../models/AuditLog';
+ import { logAccess } from '../utils/audit';
+ import { buildChildDossier } from '../utils/childDossierPdf';
+ import DocumentModel from '../models/Document';
+-import { getDocumentText } from '../utils/documentText';
++import { getDocumentText, queueExtraction } from '../utils/documentText';
+ import { getDownloadUrl as storageDownloadUrl, isProviderAvailable, StorageProvider } from '../utils/documentStorage';
+ 
+ // GET /api/admin/users — все пользователи, включая администраторов
+@@ -119,15 +119,40 @@ export const getChildAudit = async (req: AuthRequest, res: Response): Promise<vo
+   }
+ };
+ 
+-// GET /api/admin/children/:childId/documents — все документы ребёнка
++// GET /api/admin/children/:childId/documents — все документы ребёнка вместе с расшифровкой.
++// Документы без расшифровки ставятся в очередь распознавания (результат появится через минуту).
++const INLINE_TEXT_LIMIT = 20_000;
+ export const listChildDocuments = async (req: AuthRequest, res: Response): Promise<void> => {
+   try {
+     const docs = await DocumentModel.find({ childId: req.params['childId'], status: { $ne: 'uploading' } })
+-      .select('-storageKey -storageProvider -uploadExpiresAt')
++      .select('-storageKey -storageProvider -uploadExpiresAt +extractedText')
+       .populate('uploadedBy', 'name email role')
+       .sort({ createdAt: -1 })
+       .lean();
+-    res.json(docs);
++    const out = docs.map((d: any) => {
++      const ready = !!d.extractedAt;
++      if (!ready) queueExtraction(String(d._id));
++      const text: string = d.extractedText || '';
++      return {
++        ...d,
++        extractedText: text.slice(0, INLINE_TEXT_LIMIT),
++        extractTruncated: text.length > INLINE_TEXT_LIMIT,
++        extractStatus: ready ? 'done' : 'pending',
++      };
++    });
++    // Текст документов показан на странице — фиксируем в журнале доступа
++    // (не чаще раза в 30 минут на документ, чтобы обновление страницы не засоряло журнал)
++    const shown = out.filter((d: any) => d.extractedText);
++    if (shown.length) {
++      const recent = await AuditLog.find({
++        userId: req.user?.id, action: 'document.view', 'meta.transcript': true,
++        documentId: { $in: shown.map((d: any) => d._id) }, createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) },
++      }).select('documentId').lean();
++      const seen = new Set(recent.map((r: any) => String(r.documentId)));
++      await Promise.all(shown.filter((d: any) => !seen.has(String(d._id))).map((d: any) =>
++        logAccess(req, { action: 'document.view', childId: d.childId, documentId: d._id, meta: { transcript: true } })));
++    }
++    res.json(out);
+   } catch {
+     res.status(500).json({ message: 'Server error' });
+   }
+diff --git a/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx b/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx
+index cc4b1b5..4d3deb2 100644
+--- a/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx
++++ b/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx
+@@ -144,19 +144,85 @@ export function TranscriptModal({ childId, doc, onClose }: {
+ 
+ // ─── Документы ───────────────────────────────────────────────────────────────
+ 
++type AdminDoc = DocumentItem & {
++  extractedText?: string;
++  extractTruncated?: boolean;
++  extractError?: string;
++  extractStatus?: 'done' | 'pending';
++};
++
++/** Расшифровка прямо под документом: свёрнута до ~8 строк, раскрывается целиком */
++function InlineTranscript({ d, onFull }: { d: AdminDoc; onFull: () => void }) {
++  const [expanded, setExpanded] = useState(false);
++  const text = d.extractedText || '';
++  const long = text.length > 600 || text.split('\n').length > 8;
++
++  if (d.extractStatus === 'pending') {
++    return (
++      <div className="mt-3 flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2.5">
++        <div className="w-3.5 h-3.5 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
++        Расшифровываем документ… текст появится здесь автоматически.
++      </div>
++    );
++  }
++  if (!text) {
++    return (
++      <p className="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2.5">
++        {d.extractError || 'Текст в документе не найден.'}
++      </p>
++    );
++  }
++  return (
++    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60">
++      <div className="px-3 pt-2.5 flex items-center gap-2">
++        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Расшифровка</span>
++        {d.extractMethod && METHOD[d.extractMethod] && (
++          <span className="text-[10px] text-gray-400">· {METHOD[d.extractMethod]}</span>
++        )}
++      </div>
++      <pre className={`px-3 pt-1.5 pb-2.5 whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-gray-700 ${!expanded && long ? 'max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]' : ''}`}>
++        {text}
++      </pre>
++      {(long || d.extractTruncated) && (
++        <div className="px-3 pb-2.5 flex gap-4">
++          {long && (
++            <button onClick={() => setExpanded((v) => !v)} className="text-xs font-semibold text-[#E07628] hover:underline">
++              {expanded ? 'Свернуть' : 'Показать полностью'}
++            </button>
++          )}
++          {d.extractTruncated && (
++            <button onClick={onFull} className="text-xs font-semibold text-gray-500 hover:underline">Весь текст (длинный документ)</button>
++          )}
++        </div>
++      )}
++      {d.extractMethod === 'ocr' && (
++        <p className="px-3 pb-2.5 text-[10px] text-amber-600">Распознано со скана автоматически — сверяйтесь с оригиналом.</p>
++      )}
++    </div>
++  );
++}
++
+ export function ChildDocumentsAdmin({ childId }: { childId: string }) {
+-  const [docs, setDocs] = useState<DocumentItem[] | null>(null);
++  const [docs, setDocs] = useState<AdminDoc[] | null>(null);
+   const [transcript, setTranscript] = useState<{ _id: string; fileName: string } | null>(null);
+   const open = useOpenDocument(childId);
+ 
++  const load = () => adminApi.getChildDocuments(childId).then(({ data }) => setDocs(data as AdminDoc[])).catch(() => setDocs((v) => v ?? []));
++  useEffect(() => { load(); }, [childId]);
++
++  // Пока какой-то документ расшифровывается — обновляем список раз в 6 секунд (до 3 минут)
++  const pending = (docs || []).some((d) => d.extractStatus === 'pending');
+   useEffect(() => {
+-    adminApi.getChildDocuments(childId).then(({ data }) => setDocs(data)).catch(() => setDocs([]));
+-  }, [childId]);
++    if (!pending) return;
++    let n = 0;
++    const t = setInterval(() => { if (++n > 30) clearInterval(t); else load(); }, 6000);
++    return () => clearInterval(t);
++  }, [pending, childId]);
+ 
+   return (
+     <div>
+-      <p className="text-xs font-medium text-gray-500 mb-3">Документы{docs ? ` · ${docs.length}` : ''}</p>
+-      <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50">
++      <p className="text-xs font-medium text-gray-500 mb-3">Документы и их расшифровка{docs ? ` · ${docs.length}` : ''}</p>
++      <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+         {docs === null ? (
+           <p className="px-5 py-6 text-sm text-gray-400">Загрузка…</p>
+         ) : docs.length === 0 ? (
+@@ -166,28 +232,27 @@ export function ChildDocumentsAdmin({ childId }: { childId: string }) {
+           const by = typeof d.uploadedBy === 'object' ? d.uploadedBy : null;
+           const role = by ? ROLE[by.role as string] : null;
+           return (
+-            <div key={d._id} className="px-4 py-3.5 flex items-center gap-3 flex-wrap sm:flex-nowrap">
+-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ backgroundColor: k.bg, color: k.color }}>
+-                {k.label}
+-              </div>
+-              <div className="flex-1 min-w-0">
+-                <button onClick={() => open(d._id)} className="text-sm font-semibold text-gray-900 hover:text-[#E07628] truncate block max-w-full text-left">
+-                  {d.fileName}
+-                </button>
+-                <p className="text-xs text-gray-400 mt-0.5">
+-                  {new Date(d.createdAt).toLocaleDateString('ru-RU')} · {by?.name || '—'}
+-                  {role && <span className="ml-1" style={{ color: role.color }}>({role.label.toLowerCase()})</span>}
+-                  {d.size ? ` · ${sizeLabel(d.size)}` : ''}
+-                </p>
+-              </div>
+-              <div className="flex items-center gap-1.5 flex-shrink-0">
+-                <button onClick={() => setTranscript({ _id: d._id, fileName: d.fileName })}
+-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-[#E07628] bg-[#FFF3EA] hover:bg-[#FFE6D2]">
+-                  {Icon.text} Расшифровка
+-                </button>
+-                <button onClick={() => open(d._id)} title="Открыть" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{Icon.eye}</button>
+-                <button onClick={() => open(d._id, false)} title="Скачать" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{Icon.download}</button>
++            <div key={d._id} className="px-4 py-4">
++              <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
++                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ backgroundColor: k.bg, color: k.color }}>
++                  {k.label}
++                </div>
++                <div className="flex-1 min-w-0">
++                  <button onClick={() => open(d._id)} className="text-sm font-semibold text-gray-900 hover:text-[#E07628] truncate block max-w-full text-left">
++                    {d.fileName}
++                  </button>
++                  <p className="text-xs text-gray-400 mt-0.5">
++                    {new Date(d.createdAt).toLocaleDateString('ru-RU')} · {by?.name || '—'}
++                    {role && <span className="ml-1" style={{ color: role.color }}>({role.label.toLowerCase()})</span>}
++                    {d.size ? ` · ${sizeLabel(d.size)}` : ''}
++                  </p>
++                </div>
++                <div className="flex items-center gap-1.5 flex-shrink-0">
++                  <button onClick={() => open(d._id)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#E07628] bg-[#FFF3EA] hover:bg-[#FFE6D2]">Открыть</button>
++                  <button onClick={() => open(d._id, false)} title="Скачать" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{Icon.download}</button>
++                </div>
+               </div>
++              <InlineTranscript d={d} onFull={() => setTranscript({ _id: d._id, fileName: d.fileName })} />
+             </div>
+           );
+         })}
+-- 
+2.43.0
+
