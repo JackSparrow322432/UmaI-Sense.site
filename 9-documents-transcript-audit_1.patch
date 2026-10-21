@@ -1,0 +1,1077 @@
+From 2ecb46ae9cb14ae7f2b67e31e8c22e5a3d94b353 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 12:06:48 +0500
+Subject: [PATCH] Admin: open documents from the access log, clearer log UI,
+ document transcription in dossier
+
+- Admin endpoints: list child documents, open (5-min link, logged), transcript.
+- Transcription on our own server (no external services): pdftotext for PDFs,
+  tesseract OCR (rus/kaz/eng) for scans and photos, mammoth/word-extractor for Word.
+  Result cached on the document; extraction runs in background after upload.
+- Dossier appendices: original + transcription for every document; HEIC photos converted.
+- Access log: grouped by day, filters, readable actions, role badges, open document
+  or transcript straight from an entry; deleted documents marked.
+- API image: poppler-utils, tesseract-ocr (+rus, kaz, eng), libheif-tools.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ umaisense-back-main/Dockerfile                |   6 +-
+ .../src/controllers/admin.controller.ts       |  81 ++++-
+ .../src/controllers/documents.controller.ts   |   5 +-
+ umaisense-back-main/src/models/Document.ts    |   5 +
+ .../src/routes/admin.routes.ts                |  10 +-
+ umaisense-back-main/src/types/index.ts        |   4 +
+ .../src/utils/childDossierPdf.ts              |  98 ++++--
+ umaisense-back-main/src/utils/documentText.ts | 190 ++++++++++
+ umiasense-front-main/src/api/index.ts         |  13 +-
+ .../src/pages/admin/AdminChildDetailPage.tsx  |  37 +-
+ .../admin/components/ChildRecordsAdmin.tsx    | 328 ++++++++++++++++++
+ umiasense-front-main/src/types/index.ts       |  14 +
+ 12 files changed, 714 insertions(+), 77 deletions(-)
+ create mode 100644 umaisense-back-main/src/utils/documentText.ts
+ create mode 100644 umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx
+
+diff --git a/umaisense-back-main/Dockerfile b/umaisense-back-main/Dockerfile
+index ba662d0..e48d01a 100644
+--- a/umaisense-back-main/Dockerfile
++++ b/umaisense-back-main/Dockerfile
+@@ -12,8 +12,10 @@ RUN npm run build
+ 
+ FROM node:22-alpine
+ ENV NODE_ENV=production
+-# Шрифт с кириллицей для PDF-досье
+-RUN apk add --no-cache font-dejavu
++# Шрифт с кириллицей для PDF-досье; расшифровка документов прямо на сервере (без внешних сервисов):
++# poppler-utils — текст из PDF, tesseract — распознавание сканов (рус/каз/англ), libheif-tools — фото HEIC
++RUN apk add --no-cache font-dejavu poppler-utils tesseract-ocr tesseract-ocr-data-rus \
++ && for p in tesseract-ocr-data-eng tesseract-ocr-data-kaz libheif-tools; do apk add --no-cache "$p" || echo "skip $p"; done
+ WORKDIR /app
+ COPY package.json package-lock.json ./
+ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+diff --git a/umaisense-back-main/src/controllers/admin.controller.ts b/umaisense-back-main/src/controllers/admin.controller.ts
+index 6309e41..9f6741b 100644
+--- a/umaisense-back-main/src/controllers/admin.controller.ts
++++ b/umaisense-back-main/src/controllers/admin.controller.ts
+@@ -8,6 +8,9 @@ import DiaryEntry from '../models/DiaryEntry';
+ import AuditLog from '../models/AuditLog';
+ import { logAccess } from '../utils/audit';
+ import { buildChildDossier } from '../utils/childDossierPdf';
++import DocumentModel from '../models/Document';
++import { getDocumentText } from '../utils/documentText';
++import { getDownloadUrl as storageDownloadUrl, isProviderAvailable, StorageProvider } from '../utils/documentStorage';
+ 
+ // GET /api/admin/users — все пользователи, включая администраторов
+ export const getUsers = async (_req: AuthRequest, res: Response): Promise<void> => {
+@@ -84,6 +87,8 @@ export const getChildDetail = async (req: AuthRequest, res: Response): Promise<v
+ };
+ 
+ // GET /api/admin/children/:childId/audit — журнал доступа к данным ребёнка
++// К записям о документах добавляем название файла и признак «файл ещё существует»,
++// чтобы из журнала можно было сразу открыть документ.
+ export const getChildAudit = async (req: AuthRequest, res: Response): Promise<void> => {
+   try {
+     const entries = await AuditLog.find({ childId: req.params['childId'] })
+@@ -91,12 +96,86 @@ export const getChildAudit = async (req: AuthRequest, res: Response): Promise<vo
+       .sort({ createdAt: -1 })
+       .limit(500)
+       .lean();
+-    res.json(entries);
++    const docIds = [...new Set(entries.map((e: any) => e.documentId && String(e.documentId)).filter(Boolean))];
++    const docs = docIds.length
++      ? await DocumentModel.find({ _id: { $in: docIds } }).select('fileName mimeType status').lean()
++      : [];
++    const byId = new Map(docs.map((d: any) => [String(d._id), d]));
++    res.json(entries.map((e: any) => {
++      if (!e.documentId) return e;
++      const d: any = byId.get(String(e.documentId));
++      return {
++        ...e,
++        document: {
++          _id: String(e.documentId),
++          fileName: d?.fileName || (e.meta?.fileName as string) || 'Документ',
++          mimeType: d?.mimeType,
++          exists: !!d && d.status !== 'uploading',
++        },
++      };
++    }));
+   } catch {
+     res.status(500).json({ message: 'Server error' });
+   }
+ };
+ 
++// GET /api/admin/children/:childId/documents — все документы ребёнка
++export const listChildDocuments = async (req: AuthRequest, res: Response): Promise<void> => {
++  try {
++    const docs = await DocumentModel.find({ childId: req.params['childId'], status: { $ne: 'uploading' } })
++      .select('-storageKey -storageProvider -uploadExpiresAt')
++      .populate('uploadedBy', 'name email role')
++      .sort({ createdAt: -1 })
++      .lean();
++    res.json(docs);
++  } catch {
++    res.status(500).json({ message: 'Server error' });
++  }
++};
++
++const findChildDocument = (req: AuthRequest, withText = false) => {
++  const q = DocumentModel.findOne({
++    _id: req.params['documentId'], childId: req.params['childId'], status: { $ne: 'uploading' },
++  });
++  return withText ? q.select('+extractedText') : q;
++};
++
++// GET /api/admin/children/:childId/documents/:documentId/open?inline=1 — ссылка на 5 минут
++export const openChildDocument = async (req: AuthRequest, res: Response): Promise<void> => {
++  try {
++    const d = await findChildDocument(req);
++    if (!d) { res.status(404).json({ message: 'Документ не найден (возможно, удалён)' }); return; }
++    let url: string;
++    if (d.storageKey) {
++      const provider: StorageProvider = d.storageProvider === 'cloudinary' ? 'cloudinary' : 's3';
++      if (!isProviderAvailable(provider)) { res.status(503).json({ message: 'Хранилище недоступно' }); return; }
++      url = await storageDownloadUrl(provider, d.storageKey, d.fileName, req.query['inline'] === '1');
++    } else if (d.fileUrl) {
++      url = d.fileUrl;
++    } else {
++      res.status(404).json({ message: 'Файл документа не найден' }); return;
++    }
++    await logAccess(req, { action: 'document.view', childId: d.childId, documentId: d._id });
++    res.json({ url, expiresIn: 300 });
++  } catch {
++    res.status(500).json({ message: 'Server error' });
++  }
++};
++
++// GET /api/admin/children/:childId/documents/:documentId/text?refresh=1 — расшифровка
++export const getChildDocumentText = async (req: AuthRequest, res: Response): Promise<void> => {
++  try {
++    const d = await findChildDocument(req, true).lean();
++    if (!d) { res.status(404).json({ message: 'Документ не найден (возможно, удалён)' }); return; }
++    const r = await getDocumentText(d, undefined, req.query['refresh'] === '1');
++    await logAccess(req, { action: 'document.view', childId: d.childId, documentId: d._id, meta: { transcript: true } });
++    res.json({ fileName: d.fileName, ...r });
++  } catch (err) {
++    console.error('[admin] transcript failed', err);
++    res.status(500).json({ message: 'Не удалось расшифровать документ' });
++  }
++};
++
+ // Назначение администраторов через интерфейс отключено: администратор один и задаётся
+ // на сервере (ADMIN_EMAIL в .env). Выдать или снять права через API нельзя.
+ 
+diff --git a/umaisense-back-main/src/controllers/documents.controller.ts b/umaisense-back-main/src/controllers/documents.controller.ts
+index 41fce64..8ce4b10 100644
+--- a/umaisense-back-main/src/controllers/documents.controller.ts
++++ b/umaisense-back-main/src/controllers/documents.controller.ts
+@@ -9,6 +9,7 @@ import {
+ } from '../utils/documentStorage';
+ import { DOCUMENT_TYPES, matchesSignature, extFor, cleanFileName } from '../utils/fileTypes';
+ import { logAccess } from '../utils/audit';
++import { queueExtraction } from '../utils/documentText';
+ 
+ /**
+  * Медицинские и личные документы ребёнка.
+@@ -42,7 +43,7 @@ const storageUnavailable = (res: Response) =>
+   res.status(503).json({ message: 'Хранилище документов не настроено. Обратитесь к администратору.' });
+ 
+ // Наружу не отдаём ключ хранилища
+-const PUBLIC_FIELDS = '-storageKey -storageProvider -uploadExpiresAt';
++const PUBLIC_FIELDS = '-storageKey -storageProvider -uploadExpiresAt -extractedText';
+ 
+ /**
+  * Удаляет незавершённые загрузки (файл мог дойти до хранилища, а /complete — нет).
+@@ -183,6 +184,8 @@ export const completeUpload = async (req: AuthRequest, res: Response): Promise<v
+     document.uploadExpiresAt = undefined;
+     await document.save();
+     await logAccess(req, { action: 'document.upload', childId: child._id, documentId: document._id });
++    // Расшифровка готовится заранее, в фоне — чтобы досье выгружалось быстро
++    queueExtraction(String(document._id));
+ 
+     const saved = await DocumentModel.findById(document._id).select(PUBLIC_FIELDS).populate('uploadedBy', 'name role');
+     res.json(saved);
+diff --git a/umaisense-back-main/src/models/Document.ts b/umaisense-back-main/src/models/Document.ts
+index 5b7773d..b8529bf 100644
+--- a/umaisense-back-main/src/models/Document.ts
++++ b/umaisense-back-main/src/models/Document.ts
+@@ -21,6 +21,11 @@ const documentSchema = new Schema<IDocument>(
+     // ИИ-разбор документов отключён: медицинские документы не передаются за рубеж
+     aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], default: 'disabled' },
+     aiExplanation: { type: String },
++    // Расшифровка (текст документа), получается на нашем сервере: pdftotext / tesseract / Word
++    extractedText: { type: String, select: false },
++    extractMethod: { type: String, enum: ['text', 'ocr', 'word', 'none'] },
++    extractError: { type: String },
++    extractedAt: { type: Date },
+   },
+   { timestamps: true }
+ );
+diff --git a/umaisense-back-main/src/routes/admin.routes.ts b/umaisense-back-main/src/routes/admin.routes.ts
+index 6e288d8..90157ec 100644
+--- a/umaisense-back-main/src/routes/admin.routes.ts
++++ b/umaisense-back-main/src/routes/admin.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+-import { getUsers, getUserDetail, getChildDetail, getChildAudit, exportChildDossier } from '../controllers/admin.controller';
++import { getUsers, getUserDetail, getChildDetail, getChildAudit, exportChildDossier,
++  listChildDocuments, openChildDocument, getChildDocumentText } from '../controllers/admin.controller';
+ import { Types } from 'mongoose';
+ import { protect, adminOnly } from '../middleware/auth.middleware';
+ 
+@@ -21,5 +22,12 @@ router.param('id', (_req, res, next, value) => {
+ router.get('/children/:childId', getChildDetail);
+ router.get('/children/:childId/audit', getChildAudit);
+ router.get('/children/:childId/dossier.pdf', exportChildDossier);
++router.param('documentId', (_req, res, next, value) => {
++  if (!Types.ObjectId.isValid(value)) { res.status(400).json({ message: 'Некорректный идентификатор' }); return; }
++  next();
++});
++router.get('/children/:childId/documents', listChildDocuments);
++router.get('/children/:childId/documents/:documentId/open', openChildDocument);
++router.get('/children/:childId/documents/:documentId/text', getChildDocumentText);
+ 
+ export default router;
+diff --git a/umaisense-back-main/src/types/index.ts b/umaisense-back-main/src/types/index.ts
+index c44dedc..d5007d6 100644
+--- a/umaisense-back-main/src/types/index.ts
++++ b/umaisense-back-main/src/types/index.ts
+@@ -151,6 +151,10 @@ export interface IDocument extends Document {
+   uploadExpiresAt?: Date;
+   aiStatus: 'pending' | 'done' | 'failed' | 'disabled';
+   aiExplanation?: string;
++  extractedText?: string;
++  extractMethod?: 'text' | 'ocr' | 'word' | 'none';
++  extractError?: string;
++  extractedAt?: Date;
+   createdAt: Date;
+   updatedAt: Date;
+ }
+diff --git a/umaisense-back-main/src/utils/childDossierPdf.ts b/umaisense-back-main/src/utils/childDossierPdf.ts
+index ff6371c..e30421e 100644
+--- a/umaisense-back-main/src/utils/childDossierPdf.ts
++++ b/umaisense-back-main/src/utils/childDossierPdf.ts
+@@ -2,7 +2,6 @@ import fs from 'fs';
+ import path from 'path';
+ import PDFDocument from 'pdfkit';
+ import { PDFDocument as PdfLib } from 'pdf-lib';
+-import mammoth from 'mammoth';
+ import { Types } from 'mongoose';
+ import Child from '../models/Child';
+ import Emotion from '../models/Emotion';
+@@ -17,9 +16,8 @@ import TaskRating from '../models/TaskRating';
+ import Consent from '../models/Consent';
+ import AuditLog from '../models/AuditLog';
+ import { downloadStored, isProviderAvailable, StorageProvider } from './documentStorage';
++import { getDocumentText, heicToJpeg } from './documentText';
+ 
+-// eslint-disable-next-line @typescript-eslint/no-var-requires
+-const WordExtractor = require('word-extractor');
+ 
+ /**
+  * Полное досье ребёнка в PDF (только для администратора).
+@@ -30,7 +28,7 @@ const WordExtractor = require('word-extractor');
+  *   • PDF — оригинальные страницы вставляются целиком;
+  *   • фото JPEG/PNG — картинкой на отдельной странице;
+  *   • Word (.docx/.doc) — текст документа;
+- *   • прочее (например, HEIC) — карточка документа с пометкой.
++ *   • к каждому документу — расшифровка (текст PDF, распознавание сканов и фото).
+  */
+ 
+ // ─── Шрифт с кириллицей ──────────────────────────────────────────────────────
+@@ -182,13 +180,21 @@ const table = (doc: Doc, cols: { title: string; w: number }[], rows: string[][])
+ 
+ // ─── Документы ───────────────────────────────────────────────────────────────
+ 
+-type Prepared = { doc: any; buffer?: Buffer; kind: 'pdf' | 'image' | 'word' | 'other'; text?: string; pages?: number; error?: string };
++type Prepared = {
++  doc: any; buffer?: Buffer; kind: 'pdf' | 'image' | 'word' | 'other';
++  image?: Buffer; pages?: number; error?: string;
++  text?: string; textMethod?: string; textError?: string;
++};
++
++const METHOD: Record<string, string> = {
++  text: 'текстовый слой PDF', ocr: 'распознавание текста (OCR) на сервере', word: 'текст документа Word',
++};
+ 
+ const prepareDocument = async (d: any, budget: { left: number }): Promise<Prepared> => {
+   const mime = String(d.mimeType || '');
+   const kind: Prepared['kind'] =
+     mime === 'application/pdf' ? 'pdf'
+-      : mime === 'image/jpeg' || mime === 'image/png' ? 'image'
++      : mime.startsWith('image/') ? 'image'
+         : mime.includes('word') ? 'word'
+           : 'other';
+   const provider = d.storageProvider as StorageProvider | undefined;
+@@ -198,22 +204,21 @@ const prepareDocument = async (d: any, budget: { left: number }): Promise<Prepar
+   try {
+     const buffer = await downloadStored(provider, d.storageKey);
+     budget.left -= buffer.length;
+-    if (kind === 'word') {
+-      let text = '';
+-      if (buffer[0] === 0x50 && buffer[1] === 0x4b) {
+-        text = (await mammoth.extractRawText({ buffer })).value;
+-      } else {
+-        const extracted = await new WordExtractor().extract(buffer);
+-        text = extracted.getBody();
++    const t = await getDocumentText(d, buffer);
++    const out: Prepared = { doc: d, kind, buffer, text: t.text, textMethod: t.method, textError: t.error };
++    if (kind === 'pdf') {
++      try {
++        const src = await PdfLib.load(buffer, { ignoreEncryption: true });
++        if (src.isEncrypted) out.error = 'PDF защищён паролем — оригинал не вставлен';
++        else out.pages = src.getPageCount();
++      } catch {
++        out.error = 'Не удалось вставить оригинал PDF';
+       }
+-      return { doc: d, kind, buffer, text: text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim() };
+     }
+-    if (kind === 'pdf') {
+-      const src = await PdfLib.load(buffer, { ignoreEncryption: true });
+-      if (src.isEncrypted) return { doc: d, kind, error: 'PDF защищён паролем — откройте файл в разделе «Документы»' };
+-      return { doc: d, kind, buffer, pages: src.getPageCount() };
++    if (kind === 'image') {
++      out.image = mime === 'image/jpeg' || mime === 'image/png' ? buffer : (await heicToJpeg(buffer)) ?? undefined;
+     }
+-    return { doc: d, kind, buffer };
++    return out;
+   } catch (err) {
+     console.error('[dossier] document read failed', String(d._id), err);
+     return { doc: d, kind, error: 'Не удалось прочитать файл' };
+@@ -239,7 +244,7 @@ export const buildChildDossier = async (
+       Activity.find({ childId: id }).populate('recordedBy', 'name role').sort({ date: -1 }).lean(),
+       DiaryEntry.find({ childId: id }).populate('author', 'name role').sort({ createdAt: -1 }).lean(),
+       ChildMilestone.find({ childId: id }).populate('milestoneId').populate('updatedBy', 'name role').sort({ updatedAt: -1 }).lean(),
+-      DocumentModel.find({ childId: id, status: { $ne: 'uploading' } }).populate('uploadedBy', 'name role').sort({ createdAt: 1 }).lean(),
++      DocumentModel.find({ childId: id, status: { $ne: 'uploading' } }).select('+extractedText').populate('uploadedBy', 'name role').sort({ createdAt: 1 }).lean(),
+       EnrollmentRequest.find({ childId: id }).sort({ createdAt: -1 }).lean(),
+       Assignment.find({ childId: id }).populate('trainerId', 'name email').sort({ createdAt: -1 }).lean(),
+       Session.find({ childId: id }).populate('trainerId', 'name').sort({ date: -1, startTime: -1 }).lean(),
+@@ -390,8 +395,24 @@ export const buildChildDossier = async (
+     audit.map((a: any) => [fmtDateTime(a.createdAt), person(a.userId), AUDIT[a.action] ?? a.action, a.ip || '—']));
+   if (audit.length === 300) para(doc, 'Показаны последние 300 записей.', { color: C.muted, size: 8.5 });
+ 
+-  // ── Приложения ──
++  // ── Приложения: оригинал + расшифровка ──
+   const pdfInserts: { afterPage: number; buffer: Buffer; index: number }[] = [];
++  const transcript = (p: Prepared) => {
++    if (p.kind === 'other' && !p.text) return;
++    ensure(doc, 80);
++    doc.moveDown(0.4);
++    const y = doc.y;
++    doc.rect(L, y, W, 26).fill(C.bg);
++    doc.fillColor(C.ink).font('B').fontSize(11).text('Расшифровка документа', L + 10, y + 7, { continued: true })
++      .font('R').fontSize(8.5).fillColor(C.muted).text(p.textMethod && METHOD[p.textMethod] ? `   ${METHOD[p.textMethod]}` : '');
++    doc.y = y + 34; doc.x = L;
++    if (p.text) {
++      para(doc, p.text, { size: 9.5 });
++      if (p.textMethod === 'ocr') para(doc, 'Текст получен автоматическим распознаванием и может содержать неточности — сверяйтесь с оригиналом.', { color: C.muted, size: 8 });
++    } else {
++      para(doc, p.textError || 'Текст в документе не найден.', { color: C.muted });
++    }
++  };
+   prepared.forEach((p, i) => {
+     doc.addPage();
+     doc.rect(L, doc.y, W, 64).fill(C.soft);
+@@ -402,25 +423,32 @@ export const buildChildDossier = async (
+       .text(`Загружен ${fmtDateTime(p.doc.createdAt)} · ${person(p.doc.uploadedBy)} · ${sizeLabel(p.doc.size)}`, L + 14, y0 + 46, { width: W - 28 });
+     doc.y = y0 + 80; doc.x = L;
+ 
+-    if (p.error) { para(doc, p.error, { color: '#b91c1c' }); return; }
+-    if (p.kind === 'pdf' && p.buffer) {
+-      para(doc, `Оригинал документа (${p.pages} стр.) следует далее.`, { color: C.muted });
+-      pdfInserts.push({ afterPage: doc.bufferedPageRange().start + doc.bufferedPageRange().count - 1, buffer: p.buffer, index: i });
++    if (!p.buffer) { para(doc, p.error || 'Файл недоступен', { color: '#b91c1c' }); return; }
++
++    if (p.kind === 'pdf') {
++      const ok = !!p.pages && !p.error;
++      para(doc, ok ? `Ниже — расшифровка, затем оригинал документа (${p.pages} стр.).` : (p.error || 'Оригинал не вставлен'),
++        { color: ok ? C.muted : '#b91c1c' });
++      transcript(p);
++      // Оригинал — сразу после последней страницы расшифровки
++      if (ok) pdfInserts.push({ afterPage: doc.bufferedPageRange().start + doc.bufferedPageRange().count - 1, buffer: p.buffer, index: i });
+       return;
+     }
+-    if (p.kind === 'image' && p.buffer) {
+-      try {
+-        doc.image(p.buffer, L, doc.y, { fit: [W, BOTTOM - doc.y], align: 'center' });
+-      } catch {
+-        para(doc, 'Не удалось вставить изображение — откройте его в разделе «Документы».', { color: '#b91c1c' });
++    if (p.kind === 'image') {
++      if (p.image) {
++        try {
++          doc.image(p.image, L, doc.y, { fit: [W, BOTTOM - doc.y], align: 'center' });
++          doc.addPage();
++        } catch {
++          para(doc, 'Не удалось вставить изображение — откройте его в разделе «Документы».', { color: '#b91c1c' });
++        }
++      } else {
++        para(doc, 'Этот формат фото нельзя вставить в PDF — откройте его в разделе «Документы».', { color: C.muted });
+       }
++      transcript(p);
+       return;
+     }
+-    if (p.kind === 'word') {
+-      sub(doc, 'Текст документа');
+-      para(doc, p.text || 'Документ не содержит текста.');
+-      return;
+-    }
++    if (p.kind === 'word') { transcript(p); return; }
+     para(doc, 'Этот формат нельзя вставить в PDF — откройте файл в разделе «Документы».', { color: C.muted });
+   });
+ 
+diff --git a/umaisense-back-main/src/utils/documentText.ts b/umaisense-back-main/src/utils/documentText.ts
+new file mode 100644
+index 0000000..5aefe20
+--- /dev/null
++++ b/umaisense-back-main/src/utils/documentText.ts
+@@ -0,0 +1,190 @@
++import fs from 'fs/promises';
++import os from 'os';
++import path from 'path';
++import { execFile } from 'child_process';
++import { promisify } from 'util';
++import mammoth from 'mammoth';
++import DocumentModel from '../models/Document';
++import { downloadStored, isProviderAvailable, StorageProvider } from './documentStorage';
++
++// eslint-disable-next-line @typescript-eslint/no-var-requires
++const WordExtractor = require('word-extractor');
++
++const run = promisify(execFile);
++
++/**
++ * Расшифровка документов — извлечение текста. Работает ТОЛЬКО на нашем сервере в РК:
++ * файлы никуда не отправляются (никаких внешних ИИ/облачных OCR).
++ *
++ *  • PDF с текстовым слоем — pdftotext (poppler);
++ *  • сканы (PDF без текста, JPEG/PNG/HEIC) — распознавание tesseract (рус, каз, англ);
++ *  • Word .docx — mammoth, .doc — word-extractor.
++ *
++ * Результат сохраняется в документе (extractedText), чтобы не распознавать повторно.
++ */
++
++export type ExtractMethod = 'text' | 'ocr' | 'word' | 'none';
++export type Extracted = { text: string; method: ExtractMethod; pages?: number; error?: string };
++
++const MAX_OCR_PAGES = Number(process.env.OCR_MAX_PAGES) || 15;
++const OCR_TIMEOUT_MS = 120_000;
++const MAX_TEXT = 400_000; // символов на документ
++
++let langsCache: string | null = null;
++/** Языки распознавания, которые реально установлены на сервере */
++const ocrLangs = async (): Promise<string | null> => {
++  if (langsCache !== null) return langsCache || null;
++  try {
++    const { stdout, stderr } = await run('tesseract', ['--list-langs'], { timeout: 10_000 });
++    const have = new Set(`${stdout}\n${stderr}`.split(/\s+/));
++    langsCache = ['rus', 'kaz', 'eng'].filter((l) => have.has(l)).join('+');
++  } catch {
++    langsCache = '';
++  }
++  return langsCache || null;
++};
++
++const has = async (bin: string, args: string[] = ['-v']) => {
++  try { await run(bin, args, { timeout: 10_000 }); return true; } catch (e: any) { return e?.code !== 'ENOENT'; }
++};
++
++const clean = (t: string) =>
++  t.replace(/\r/g, '').replace(/\f/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, MAX_TEXT);
++
++const ocrImage = async (file: string, langs: string): Promise<string> => {
++  const { stdout } = await run('tesseract', [file, 'stdout', '-l', langs, '--psm', '3'], {
++    timeout: OCR_TIMEOUT_MS, maxBuffer: 20 * 1024 * 1024,
++  });
++  return stdout;
++};
++
++const isPdf = (b: Buffer) => b.subarray(0, 5).toString('latin1') === '%PDF-';
++const isZip = (b: Buffer) => b[0] === 0x50 && b[1] === 0x4b;
++
++/** Извлечь текст из файла (буфер + MIME) */
++export const extractText = async (buffer: Buffer, mimeType: string): Promise<Extracted> => {
++  const mime = mimeType || '';
++
++  if (mime.includes('word')) {
++    try {
++      const text = isZip(buffer)
++        ? (await mammoth.extractRawText({ buffer })).value
++        : (await new WordExtractor().extract(buffer)).getBody();
++      return { text: clean(text), method: 'word' };
++    } catch {
++      return { text: '', method: 'none', error: 'Не удалось прочитать документ Word' };
++    }
++  }
++
++  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'umai-doc-'));
++  try {
++    if (mime === 'application/pdf' || isPdf(buffer)) {
++      const src = path.join(dir, 'in.pdf');
++      await fs.writeFile(src, buffer);
++      let pages = 0;
++      try {
++        const { stdout } = await run('pdfinfo', [src], { timeout: 20_000 });
++        pages = Number(/Pages:\s+(\d+)/.exec(stdout)?.[1] || 0);
++      } catch { /* битый или зашифрованный PDF */ }
++
++      // 1) Текстовый слой
++      let text = '';
++      try {
++        const { stdout } = await run('pdftotext', ['-layout', '-enc', 'UTF-8', src, '-'], {
++          timeout: 60_000, maxBuffer: 50 * 1024 * 1024,
++        });
++        text = clean(stdout);
++      } catch (e: any) {
++        if (e?.code === 'ENOENT') return { text: '', method: 'none', error: 'На сервере не установлен poppler-utils' };
++      }
++      // Достаточно текста (≈ 40+ букв на страницу) — это не скан
++      const letters = (text.match(/\p{L}/gu) || []).length;
++      if (letters >= Math.max(40, 40 * pages)) return { text, method: 'text', pages };
++
++      // 2) Скан — распознаём постранично
++      const langs = await ocrLangs();
++      if (!langs) return { text, method: text ? 'text' : 'none', pages, error: 'Распознавание сканов недоступно (нет tesseract)' };
++      const last = Math.min(pages || MAX_OCR_PAGES, MAX_OCR_PAGES);
++      await run('pdftoppm', ['-r', '250', '-gray', '-png', '-f', '1', '-l', String(last), src, path.join(dir, 'p')], {
++        timeout: 180_000,
++      });
++      const imgs = (await fs.readdir(dir)).filter((f) => /^p-\d+\.png$/.test(f)).sort();
++      const parts: string[] = [];
++      for (const [i, f] of imgs.entries()) {
++        const t = clean(await ocrImage(path.join(dir, f), langs));
++        parts.push(imgs.length > 1 ? `— Страница ${i + 1} —\n${t || '(текст не распознан)'}` : t);
++      }
++      const note = pages > last ? `\n\n(Распознаны первые ${last} из ${pages} страниц)` : '';
++      return { text: clean(parts.join('\n\n')) + note, method: 'ocr', pages };
++    }
++
++    if (mime.startsWith('image/')) {
++      const langs = await ocrLangs();
++      if (!langs) return { text: '', method: 'none', error: 'Распознавание изображений недоступно (нет tesseract)' };
++      let src = path.join(dir, mime === 'image/png' ? 'in.png' : mime === 'image/jpeg' ? 'in.jpg' : 'in.heic');
++      await fs.writeFile(src, buffer);
++      if (src.endsWith('.heic')) {
++        if (!(await has('heif-convert', ['--version']))) return { text: '', method: 'none', error: 'Формат HEIC не поддерживается сервером' };
++        const out = path.join(dir, 'in.jpg');
++        await run('heif-convert', [src, out], { timeout: 60_000 });
++        src = out;
++      }
++      return { text: clean(await ocrImage(src, langs)), method: 'ocr', pages: 1 };
++    }
++
++    return { text: '', method: 'none', error: 'Этот формат нельзя расшифровать' };
++  } catch (err) {
++    console.error('[doc-text] extract failed', err);
++    return { text: '', method: 'none', error: 'Не удалось расшифровать документ' };
++  } finally {
++    fs.rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++};
++
++/** HEIC → JPEG (для вставки фото в досье). null — если конвертер недоступен. */
++export const heicToJpeg = async (buffer: Buffer): Promise<Buffer | null> => {
++  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'umai-heic-'));
++  try {
++    await fs.writeFile(path.join(dir, 'in.heic'), buffer);
++    await run('heif-convert', ['-q', '85', path.join(dir, 'in.heic'), path.join(dir, 'out.jpg')], { timeout: 60_000 });
++    return await fs.readFile(path.join(dir, 'out.jpg'));
++  } catch {
++    return null;
++  } finally {
++    fs.rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++};
++
++// ─── Кэш в документе и очередь ───────────────────────────────────────────────
++
++/** Расшифровка документа: из кэша или заново (результат сохраняется). */
++export const getDocumentText = async (doc: any, buffer?: Buffer, force = false): Promise<Extracted> => {
++  if (!force && doc.extractedAt && (doc.extractedText || doc.extractError)) {
++    return { text: doc.extractedText || '', method: doc.extractMethod || 'none', error: doc.extractError || undefined };
++  }
++  const provider = doc.storageProvider as StorageProvider | undefined;
++  if (!buffer) {
++    if (!provider || !doc.storageKey || !isProviderAvailable(provider)) {
++      return { text: '', method: 'none', error: 'Файл недоступен в хранилище' };
++    }
++    buffer = await downloadStored(provider, doc.storageKey);
++  }
++  const r = await extractText(buffer, doc.mimeType);
++  await DocumentModel.updateOne({ _id: doc._id }, {
++    $set: { extractedText: r.text, extractMethod: r.method, extractError: r.error ?? '', extractedAt: new Date() },
++  }).catch(() => {});
++  return r;
++};
++
++// Одна задача за раз: распознавание тяжёлое, а сервер небольшой
++let chain: Promise<unknown> = Promise.resolve();
++export const queueExtraction = (documentId: string): void => {
++  chain = chain.then(async () => {
++    try {
++      const doc = await DocumentModel.findById(documentId).lean();
++      if (doc) await getDocumentText(doc);
++    } catch (err) {
++      console.error('[doc-text] background extract failed', documentId, err);
++    }
++  });
++};
+diff --git a/umiasense-front-main/src/api/index.ts b/umiasense-front-main/src/api/index.ts
+index 91a1f57..daebe09 100644
+--- a/umiasense-front-main/src/api/index.ts
++++ b/umiasense-front-main/src/api/index.ts
+@@ -6,7 +6,7 @@ import type {
+   Milestone, ChildMilestone, Recommendation,
+   Notification, InviteCode, MoodType,
+   ActivityCategory, DiaryTag, MilestoneStatus, Article, DocumentItem,
+-  Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry,
++  Task, TaskRating, TaskSubmissionAdmin, AccessLogEntry, AdminAuditEntry,
+   EnrollmentRequest, Assignment, Session, ScheduleSlot, Weekday, RequestStatus,
+ } from '../types';
+ 
+@@ -116,10 +116,13 @@ export const adminApi = {
+   // Полное досье ребёнка в PDF (все данные + содержимое документов)
+   downloadDossier: (childId: string) =>
+     api.get<Blob>(`/admin/children/${childId}/dossier.pdf`, { responseType: 'blob', timeout: 180000 }),
+-  getChildAudit: (childId: string) =>
+-    api.get<(AccessLogEntry & { ip?: string; userId?: { _id: string; name: string; email?: string; role: string } | null })[]>(
+-      `/admin/children/${childId}/audit`
+-    ),
++  getChildAudit: (childId: string) => api.get<AdminAuditEntry[]>(`/admin/children/${childId}/audit`),
++  getChildDocuments: (childId: string) => api.get<DocumentItem[]>(`/admin/children/${childId}/documents`),
++  openChildDocument: (childId: string, documentId: string, inline = true) =>
++    api.get<{ url: string; expiresIn: number }>(`/admin/children/${childId}/documents/${documentId}/open`, { params: inline ? { inline: 1 } : {} }),
++  getDocumentText: (childId: string, documentId: string, refresh = false) =>
++    api.get<{ fileName: string; text: string; method: 'text' | 'ocr' | 'word' | 'none'; error?: string }>(
++      `/admin/children/${childId}/documents/${documentId}/text`, { params: refresh ? { refresh: 1 } : {}, timeout: 300000 }),
+ };
+ 
+ export const documentsApi = {
+diff --git a/umiasense-front-main/src/pages/admin/AdminChildDetailPage.tsx b/umiasense-front-main/src/pages/admin/AdminChildDetailPage.tsx
+index ea0821d..9f887ce 100644
+--- a/umiasense-front-main/src/pages/admin/AdminChildDetailPage.tsx
++++ b/umiasense-front-main/src/pages/admin/AdminChildDetailPage.tsx
+@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
+ import { useParams, useNavigate } from 'react-router-dom';
+ import { toast } from 'sonner';
+ import { adminApi } from '../../api';
++import { ChildDocumentsAdmin, ChildAuditAdmin } from './components/ChildRecordsAdmin';
+ import { skiText, adaptiveText } from '../../utils/enrollment';
+ import type { Child, Emotion, Activity, DiaryEntry, User, MoodType, ActivityCategory, DiaryTag } from '../../types';
+ 
+@@ -101,8 +102,6 @@ export default function AdminChildDetailPage() {
+   const [diary,      setDiary]      = useState<DiaryEntry[]>([]);
+   const [stats,      setStats]      = useState({ totalEmotions: 0, totalActivities: 0, totalDiary: 0 });
+   const [loading,    setLoading]    = useState(true);
+-  const [audit,      setAudit]      = useState<Awaited<ReturnType<typeof adminApi.getChildAudit>>['data']>([]);
+-  const [showAudit,  setShowAudit]  = useState(false);
+   const [exporting,  setExporting]  = useState(false);
+ 
+   useEffect(() => {
+@@ -354,37 +353,11 @@ export default function AdminChildDetailPage() {
+         </div>
+       )}
+ 
++      {/* Документы: открыть, скачать, расшифровка */}
++      <ChildDocumentsAdmin childId={childId!} />
++
+       {/* Журнал доступа к персональным и медицинским данным */}
+-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+-        <button
+-          onClick={() => {
+-            if (!showAudit && childId) adminApi.getChildAudit(childId).then(({ data }) => setAudit(data)).catch(() => {});
+-            setShowAudit((v) => !v);
+-          }}
+-          className="text-sm font-semibold text-gray-900"
+-        >
+-          🔒 Журнал доступа {showAudit ? '▲' : '▼'}
+-        </button>
+-        {showAudit && (
+-          audit.length === 0 ? (
+-            <p className="text-sm text-gray-400 mt-3">Записей нет</p>
+-          ) : (
+-            <ul className="mt-3 divide-y divide-gray-100 text-sm">
+-              {audit.map((e) => (
+-                <li key={e._id} className="py-2 flex justify-between gap-3">
+-                  <span>
+-                    <b className="font-medium">{e.userId?.name || '—'}</b>{' '}
+-                    <span className="text-gray-400">({e.userId?.email || e.role})</span> · {e.action}
+-                  </span>
+-                  <span className="text-xs text-gray-400 flex-shrink-0">
+-                    {new Date(e.createdAt).toLocaleString('ru-RU')} {e.ip && `· ${e.ip}`}
+-                  </span>
+-                </li>
+-              ))}
+-            </ul>
+-          )
+-        )}
+-      </div>
++      <ChildAuditAdmin childId={childId!} />
+     </div>
+   );
+ }
+diff --git a/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx b/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx
+new file mode 100644
+index 0000000..cc4b1b5
+--- /dev/null
++++ b/umiasense-front-main/src/pages/admin/components/ChildRecordsAdmin.tsx
+@@ -0,0 +1,328 @@
++import { useEffect, useMemo, useState, type ReactNode } from 'react';
++import { toast } from 'sonner';
++import { adminApi } from '../../../api';
++import type { AdminAuditEntry, DocumentItem } from '../../../types';
++
++/**
++ * Документы ребёнка и журнал доступа в админке:
++ *  • список документов: открыть, скачать, посмотреть расшифровку (текст документа);
++ *  • журнал доступа: понятные формулировки, группировка по дням, фильтры,
++ *    документ из любой записи журнала можно открыть одним нажатием.
++ */
++
++// ─── Общие помощники ─────────────────────────────────────────────────────────
++
++const ROLE: Record<string, { label: string; color: string; bg: string }> = {
++  admin:   { label: 'Администратор', color: '#7C3AED', bg: '#F5F3FF' },
++  parent:  { label: 'Родитель',      color: '#E07628', bg: '#FFF3EA' },
++  trainer: { label: 'Тренер',        color: '#0F766E', bg: '#ECFDF5' },
++};
++
++const sizeLabel = (b?: number) =>
++  !b ? '' : b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} МБ` : `${Math.ceil(b / 1024)} КБ`;
++
++const kindOf = (mime = '', name = '') => {
++  if (mime === 'application/pdf' || /\.pdf$/i.test(name)) return { label: 'PDF', color: '#DC2626', bg: '#FEF2F2' };
++  if (mime.includes('word') || /\.docx?$/i.test(name)) return { label: 'DOC', color: '#2563EB', bg: '#EFF6FF' };
++  if (mime.startsWith('image/') || /\.(jpe?g|png|heic)$/i.test(name)) return { label: 'ФОТО', color: '#059669', bg: '#ECFDF5' };
++  return { label: 'ФАЙЛ', color: '#6B7280', bg: '#F3F4F6' };
++};
++
++const METHOD: Record<string, string> = {
++  text: 'Текст из PDF',
++  ocr: 'Распознано со скана',
++  word: 'Текст документа Word',
++  none: '',
++};
++
++const fmtTime = (d: string) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
++const fmtDay = (d: string) => {
++  const day = new Date(d); const today = new Date();
++  const y = new Date(); y.setDate(today.getDate() - 1);
++  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
++  if (same(day, today)) return 'Сегодня';
++  if (same(day, y)) return 'Вчера';
++  return day.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
++};
++
++/** Открыть документ в новой вкладке (ссылка действует 5 минут) */
++const useOpenDocument = (childId: string) => async (documentId: string, inline = true) => {
++  // Окно открываем сразу, по клику — иначе браузер заблокирует всплывающее окно
++  const win = inline ? window.open('', '_blank') : null;
++  try {
++    const { data } = await adminApi.openChildDocument(childId, documentId, inline);
++    if (win) win.location.href = data.url;
++    else window.location.href = data.url;
++  } catch (err: any) {
++    win?.close();
++    toast.error(err?.response?.data?.message || 'Не удалось открыть документ');
++  }
++};
++
++const Icon = {
++  doc: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
++  eye: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
++  upload: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
++  download: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
++  trash: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>,
++  key: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>,
++  text: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>,
++  lock: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
++};
++
++// ─── Окно расшифровки ────────────────────────────────────────────────────────
++
++export function TranscriptModal({ childId, doc, onClose }: {
++  childId: string; doc: { _id: string; fileName: string }; onClose: () => void;
++}) {
++  const [loading, setLoading] = useState(true);
++  const [data, setData] = useState<{ text: string; method: string; error?: string } | null>(null);
++  const open = useOpenDocument(childId);
++
++  const load = (refresh = false) => {
++    setLoading(true);
++    adminApi.getDocumentText(childId, doc._id, refresh)
++      .then(({ data }) => setData(data))
++      .catch((err) => setData({ text: '', method: 'none', error: err?.response?.data?.message || 'Не удалось расшифровать документ' }))
++      .finally(() => setLoading(false));
++  };
++  useEffect(() => { load(); }, [doc._id]);
++  useEffect(() => {
++    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
++    window.addEventListener('keydown', onKey);
++    return () => window.removeEventListener('keydown', onKey);
++  }, [onClose]);
++
++  const copy = async () => {
++    try { await navigator.clipboard.writeText(data?.text || ''); toast.success('Текст скопирован'); }
++    catch { toast.error('Не удалось скопировать'); }
++  };
++
++  return (
++    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
++      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[88vh] flex flex-col shadow-xl" onClick={(e) => e.stopPropagation()}>
++        <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
++          <div className="flex-1 min-w-0">
++            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#E07628]">Расшифровка документа</p>
++            <p className="text-base font-bold text-gray-900 truncate mt-0.5">{doc.fileName}</p>
++            {data?.method && METHOD[data.method] && (
++              <p className="text-xs text-gray-400 mt-0.5">{METHOD[data.method]} · обработано на сервере UmaiSense в РК</p>
++            )}
++          </div>
++          <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 text-xl leading-none">×</button>
++        </div>
++
++        <div className="flex-1 overflow-auto px-5 py-4">
++          {loading ? (
++            <div className="py-14 flex flex-col items-center gap-3 text-sm text-gray-400">
++              <div className="w-7 h-7 border-2 border-[#E07628] border-t-transparent rounded-full animate-spin" />
++              Расшифровываем… Для сканов это может занять до минуты.
++            </div>
++          ) : data?.text ? (
++            <>
++              {data.method === 'ocr' && (
++                <p className="text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2 mb-3">
++                  Текст распознан автоматически со скана и может содержать неточности — сверяйтесь с оригиналом.
++                </p>
++              )}
++              <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800 leading-relaxed">{data.text}</pre>
++            </>
++          ) : (
++            <p className="py-10 text-center text-sm text-gray-400">{data?.error || 'Текст в документе не найден.'}</p>
++          )}
++        </div>
++
++        <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap gap-2 justify-end">
++          <button onClick={() => load(true)} disabled={loading} className="px-3 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50">Распознать заново</button>
++          <button onClick={copy} disabled={loading || !data?.text} className="px-3 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50">Копировать текст</button>
++          <button onClick={() => open(doc._id)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-[#E07628] hover:bg-[#C9661F] text-white">Открыть оригинал</button>
++        </div>
++      </div>
++    </div>
++  );
++}
++
++// ─── Документы ───────────────────────────────────────────────────────────────
++
++export function ChildDocumentsAdmin({ childId }: { childId: string }) {
++  const [docs, setDocs] = useState<DocumentItem[] | null>(null);
++  const [transcript, setTranscript] = useState<{ _id: string; fileName: string } | null>(null);
++  const open = useOpenDocument(childId);
++
++  useEffect(() => {
++    adminApi.getChildDocuments(childId).then(({ data }) => setDocs(data)).catch(() => setDocs([]));
++  }, [childId]);
++
++  return (
++    <div>
++      <p className="text-xs font-medium text-gray-500 mb-3">Документы{docs ? ` · ${docs.length}` : ''}</p>
++      <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50">
++        {docs === null ? (
++          <p className="px-5 py-6 text-sm text-gray-400">Загрузка…</p>
++        ) : docs.length === 0 ? (
++          <p className="px-5 py-6 text-sm text-gray-400">Документов пока нет</p>
++        ) : docs.map((d) => {
++          const k = kindOf(d.mimeType, d.fileName);
++          const by = typeof d.uploadedBy === 'object' ? d.uploadedBy : null;
++          const role = by ? ROLE[by.role as string] : null;
++          return (
++            <div key={d._id} className="px-4 py-3.5 flex items-center gap-3 flex-wrap sm:flex-nowrap">
++              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ backgroundColor: k.bg, color: k.color }}>
++                {k.label}
++              </div>
++              <div className="flex-1 min-w-0">
++                <button onClick={() => open(d._id)} className="text-sm font-semibold text-gray-900 hover:text-[#E07628] truncate block max-w-full text-left">
++                  {d.fileName}
++                </button>
++                <p className="text-xs text-gray-400 mt-0.5">
++                  {new Date(d.createdAt).toLocaleDateString('ru-RU')} · {by?.name || '—'}
++                  {role && <span className="ml-1" style={{ color: role.color }}>({role.label.toLowerCase()})</span>}
++                  {d.size ? ` · ${sizeLabel(d.size)}` : ''}
++                </p>
++              </div>
++              <div className="flex items-center gap-1.5 flex-shrink-0">
++                <button onClick={() => setTranscript({ _id: d._id, fileName: d.fileName })}
++                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-[#E07628] bg-[#FFF3EA] hover:bg-[#FFE6D2]">
++                  {Icon.text} Расшифровка
++                </button>
++                <button onClick={() => open(d._id)} title="Открыть" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{Icon.eye}</button>
++                <button onClick={() => open(d._id, false)} title="Скачать" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{Icon.download}</button>
++              </div>
++            </div>
++          );
++        })}
++      </div>
++      {transcript && <TranscriptModal childId={childId} doc={transcript} onClose={() => setTranscript(null)} />}
++    </div>
++  );
++}
++
++// ─── Журнал доступа ──────────────────────────────────────────────────────────
++
++const ACTION: Record<string, { verb: string; icon: ReactNode; color: string; bg: string; group: Filter }> = {
++  'child.view':           { verb: 'открыл(а) профиль ребёнка', icon: Icon.eye,      color: '#2563EB', bg: '#EFF6FF', group: 'profile' },
++  'child.export':         { verb: 'скачал(а) досье в PDF',      icon: Icon.download, color: '#E07628', bg: '#FFF3EA', group: 'export' },
++  'child.access_granted': { verb: 'получил(а) доступ по коду',   icon: Icon.key,      color: '#7C3AED', bg: '#F5F3FF', group: 'profile' },
++  'document.view':        { verb: 'открыл(а) документ',          icon: Icon.doc,      color: '#0F766E', bg: '#ECFDF5', group: 'docs' },
++  'document.upload':      { verb: 'загрузил(а) документ',        icon: Icon.upload,   color: '#059669', bg: '#ECFDF5', group: 'docs' },
++  'document.delete':      { verb: 'удалил(а) документ',          icon: Icon.trash,    color: '#DC2626', bg: '#FEF2F2', group: 'docs' },
++};
++
++type Filter = 'all' | 'docs' | 'profile' | 'export';
++const FILTERS: { key: Filter; label: string }[] = [
++  { key: 'all', label: 'Все' },
++  { key: 'docs', label: 'Документы' },
++  { key: 'profile', label: 'Просмотры профиля' },
++  { key: 'export', label: 'Скачивания досье' },
++];
++
++export function ChildAuditAdmin({ childId }: { childId: string }) {
++  const [entries, setEntries] = useState<AdminAuditEntry[] | null>(null);
++  const [filter, setFilter] = useState<Filter>('all');
++  const [limit, setLimit] = useState(30);
++  const [transcript, setTranscript] = useState<{ _id: string; fileName: string } | null>(null);
++  const open = useOpenDocument(childId);
++
++  const load = () => adminApi.getChildAudit(childId).then(({ data }) => setEntries(data)).catch(() => setEntries([]));
++  useEffect(() => { load(); }, [childId]);
++
++  const filtered = useMemo(
++    () => (entries || []).filter((e) => filter === 'all' || ACTION[e.action]?.group === filter),
++    [entries, filter]
++  );
++  const groups = useMemo(() => {
++    const out: { day: string; items: AdminAuditEntry[] }[] = [];
++    for (const e of filtered.slice(0, limit)) {
++      const day = fmtDay(e.createdAt);
++      if (out.at(-1)?.day !== day) out.push({ day, items: [] });
++      out.at(-1)!.items.push(e);
++    }
++    return out;
++  }, [filtered, limit]);
++
++  const count = (f: Filter) => (entries || []).filter((e) => f === 'all' || ACTION[e.action]?.group === f).length;
++
++  return (
++    <div className="bg-white rounded-xl border border-gray-200">
++      <div className="px-5 pt-5 pb-3 flex items-start gap-3">
++        <div className="w-9 h-9 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0">{Icon.lock}</div>
++        <div className="flex-1">
++          <p className="text-sm font-bold text-gray-900">Журнал доступа</p>
++          <p className="text-xs text-gray-400 mt-0.5">Кто и когда смотрел данные и документы ребёнка. Записи хранятся 3 года.</p>
++        </div>
++        <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-50">Обновить</button>
++      </div>
++
++      <div className="px-5 pb-3 flex flex-wrap gap-2">
++        {FILTERS.map((f) => (
++          <button key={f.key} onClick={() => { setFilter(f.key); setLimit(30); }}
++            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${filter === f.key ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
++            {f.label} <span className="opacity-60">{entries ? count(f.key) : ''}</span>
++          </button>
++        ))}
++      </div>
++
++      {entries === null ? (
++        <p className="px-5 pb-6 text-sm text-gray-400">Загрузка…</p>
++      ) : filtered.length === 0 ? (
++        <p className="px-5 pb-6 text-sm text-gray-400">Записей нет</p>
++      ) : (
++        <div className="pb-2">
++          {groups.map((g) => (
++            <div key={g.day}>
++              <p className="px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50/70 border-y border-gray-100">{g.day}</p>
++              <ul className="divide-y divide-gray-50">
++                {g.items.map((e) => {
++                  const a = ACTION[e.action] ?? { verb: e.action, icon: Icon.eye, color: '#6B7280', bg: '#F3F4F6', group: 'all' as Filter };
++                  const role = ROLE[(e.userId?.role || e.role) as string];
++                  const transcriptView = !!e.meta?.transcript;
++                  return (
++                    <li key={e._id} className="px-5 py-3 flex items-start gap-3">
++                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: a.bg, color: a.color }}>
++                        {a.icon}
++                      </div>
++                      <div className="flex-1 min-w-0">
++                        <p className="text-sm text-gray-800 leading-snug">
++                          <b className="font-semibold">{e.userId?.name || 'Удалённый пользователь'}</b>{' '}
++                          {role && (
++                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full align-middle mr-1" style={{ backgroundColor: role.bg, color: role.color }}>
++                              {role.label}
++                            </span>
++                          )}
++                          {transcriptView ? 'открыл(а) расшифровку документа' : a.verb}
++                          {e.document && <> «<span className="font-medium">{e.document.fileName}</span>»</>}
++                        </p>
++                        {e.document && (
++                          e.document.exists ? (
++                            <div className="flex gap-3 mt-1.5">
++                              <button onClick={() => open(e.document!._id)} className="text-xs font-semibold text-[#E07628] hover:underline">Открыть документ</button>
++                              <button onClick={() => setTranscript({ _id: e.document!._id, fileName: e.document!.fileName })} className="text-xs font-semibold text-gray-500 hover:text-gray-800 hover:underline">Расшифровка</button>
++                            </div>
++                          ) : (
++                            <p className="text-xs text-gray-400 mt-1">Документ удалён</p>
++                          )
++                        )}
++                      </div>
++                      <div className="text-right flex-shrink-0">
++                        <p className="text-sm text-gray-700 tabular-nums">{fmtTime(e.createdAt)}</p>
++                        {e.ip && <p className="text-[10px] text-gray-400 tabular-nums mt-0.5" title="IP-адрес">{e.ip}</p>}
++                      </div>
++                    </li>
++                  );
++                })}
++              </ul>
++            </div>
++          ))}
++          {filtered.length > limit && (
++            <div className="px-5 pt-2 pb-3">
++              <button onClick={() => setLimit((l) => l + 50)} className="w-full py-2 rounded-xl text-sm text-gray-600 bg-gray-50 hover:bg-gray-100">
++                Показать ещё ({filtered.length - limit})
++              </button>
++            </div>
++          )}
++        </div>
++      )}
++      {transcript && <TranscriptModal childId={childId} doc={transcript} onClose={() => setTranscript(null)} />}
++    </div>
++  );
++}
+diff --git a/umiasense-front-main/src/types/index.ts b/umiasense-front-main/src/types/index.ts
+index c6a54d7..c333280 100644
+--- a/umiasense-front-main/src/types/index.ts
++++ b/umiasense-front-main/src/types/index.ts
+@@ -225,6 +225,8 @@ export interface DocumentItem {
+   status?: 'uploading' | 'ready';
+   aiStatus: 'pending' | 'done' | 'failed' | 'disabled';
+   aiExplanation?: string;
++  extractMethod?: 'text' | 'ocr' | 'word' | 'none';
++  extractedAt?: string;
+   createdAt: string;
+   updatedAt: string;
+ }
+@@ -297,3 +299,15 @@ export interface AccessLogEntry {
+   role?: UserRole;
+   createdAt: string;
+ }
++
++/** Запись журнала доступа для администратора */
++export interface AdminAuditEntry {
++  _id: string;
++  action: AccessLogEntry['action'] | 'admin.grant' | 'admin.revoke';
++  userId?: { _id: string; name: string; email?: string; role: UserRole } | null;
++  role?: UserRole;
++  ip?: string;
++  createdAt: string;
++  meta?: Record<string, unknown>;
++  document?: { _id: string; fileName: string; mimeType?: string; exists: boolean };
++}
+-- 
+2.43.0
+
