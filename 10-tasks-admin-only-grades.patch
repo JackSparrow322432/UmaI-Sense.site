@@ -1,0 +1,420 @@
+From 808c1583b86bddc710049d503a88ed9ec09aef1f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 13:50:19 +0500
+Subject: [PATCH] Tasks: only admin grades; parents upload answers and see the
+ grade
+
+- PUT/DELETE /api/tasks/:id/ratings/:childId are admin-only (parents and trainers can't grade).
+- Parent is notified when the admin grades (new notification type task_rated).
+- Parent task page: status (not done / under review / graded), answer upload, read-only grade
+  and admin comment.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B8r16QcS1qxJdA1TRkE5Kw
+---
+ .../src/controllers/tasks.controller.ts       |  10 +-
+ .../src/models/Notification.ts                |   2 +-
+ .../src/routes/tasks.routes.ts                |   7 +-
+ umaisense-back-main/src/types/index.ts        |   2 +-
+ .../pages/notifications/NotificationsPage.tsx |   8 +
+ .../src/pages/tasks/TaskDetailPage.tsx        | 184 ++++++------------
+ umiasense-front-main/src/types/index.ts       |   2 +-
+ 7 files changed, 84 insertions(+), 131 deletions(-)
+
+diff --git a/umaisense-back-main/src/controllers/tasks.controller.ts b/umaisense-back-main/src/controllers/tasks.controller.ts
+index 28ddd21..cdd9163 100644
+--- a/umaisense-back-main/src/controllers/tasks.controller.ts
++++ b/umaisense-back-main/src/controllers/tasks.controller.ts
+@@ -170,10 +170,18 @@ export const setTaskRating = async (req: AuthRequest, res: Response): Promise<vo
+ 
+     const taskRating = await TaskRating.findOneAndUpdate(
+       { taskId, childId },
+-      { rating: ratingNum, comment, ratedBy: req.user!.id },
++      { rating: ratingNum, comment: typeof comment === 'string' ? comment.trim().slice(0, 2000) : undefined, ratedBy: req.user!.id },
+       { upsert: true, new: true, setDefaultsOnInsert: true }
+     );
+ 
++    // Сообщаем родителю об оценке
++    await Notification.create({
++      userId: child.parentId,
++      type: 'task_rated',
++      message: `Оценка за задание «${task.title}» (${child.name}): ${ratingNum} из 5`,
++      relatedId: task._id,
++    }).catch(() => {});
++
+     res.json(taskRating);
+   } catch {
+     res.status(500).json({ message: 'Ошибка сервера' });
+diff --git a/umaisense-back-main/src/models/Notification.ts b/umaisense-back-main/src/models/Notification.ts
+index fb2eb00..bacb301 100644
+--- a/umaisense-back-main/src/models/Notification.ts
++++ b/umaisense-back-main/src/models/Notification.ts
+@@ -8,7 +8,7 @@ const notificationSchema = new Schema<INotification>(
+       type: String,
+       enum: [
+         'diary_entry', 'invite_accepted', 'ai_recommendation', 'emotion_reminder', 'new_article', 'new_task',
+-        'enrollment_update', 'trainer_assigned', 'session_cancelled',
++        'enrollment_update', 'trainer_assigned', 'session_cancelled', 'task_rated',
+       ],
+       required: true,
+     },
+diff --git a/umaisense-back-main/src/routes/tasks.routes.ts b/umaisense-back-main/src/routes/tasks.routes.ts
+index da462e7..e4af117 100644
+--- a/umaisense-back-main/src/routes/tasks.routes.ts
++++ b/umaisense-back-main/src/routes/tasks.routes.ts
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { protect, adminOnly, noTrainerDelete } from '../middleware/auth.middleware';
++import { protect, adminOnly } from '../middleware/auth.middleware';
+ import { upload } from '../utils/upload';
+ import {
+   getTasks,
+@@ -25,8 +25,9 @@ router.put('/:id',    adminOnly, updateTask);
+ router.delete('/:id', adminOnly, deleteTask);
+ 
+ router.get('/:id/ratings', getTaskRatings);
+-router.put('/:id/ratings/:childId', setTaskRating);
+-router.delete('/:id/ratings/:childId', noTrainerDelete, deleteTaskRating);
++// Оценки ставит и удаляет только администратор. Родитель загружает ответ и видит оценку.
++router.put('/:id/ratings/:childId', adminOnly, setTaskRating);
++router.delete('/:id/ratings/:childId', adminOnly, deleteTaskRating);
+ 
+ router.get('/:id/submissions', adminOnly, getAllTaskSubmissions);
+ router.post('/:id/submissions/:childId', upload.single('file'), uploadTaskSubmission);
+diff --git a/umaisense-back-main/src/types/index.ts b/umaisense-back-main/src/types/index.ts
+index d5007d6..a70fe35 100644
+--- a/umaisense-back-main/src/types/index.ts
++++ b/umaisense-back-main/src/types/index.ts
+@@ -119,7 +119,7 @@ export interface IRecommendation extends Document {
+ export type NotificationType =
+   | 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder'
+   | 'new_article' | 'new_task'
+-  | 'enrollment_update' | 'trainer_assigned' | 'session_cancelled';
++  | 'enrollment_update' | 'trainer_assigned' | 'session_cancelled' | 'task_rated';
+ 
+ export interface INotification extends Document {
+   userId: Types.ObjectId;
+diff --git a/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx b/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
+index c62bf82..a705bf2 100644
+--- a/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
++++ b/umiasense-front-main/src/pages/notifications/NotificationsPage.tsx
+@@ -78,6 +78,14 @@ const TYPE_CFG: Record<NotificationType, { icon: React.ReactElement; color: stri
+       </svg>
+     ),
+   },
++  task_rated: {
++    color: '#E07628', bg: '#FFF3EA',
++    icon: (
++      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
++        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
++      </svg>
++    ),
++  },
+   session_cancelled: {
+     color: '#EF4444', bg: '#FEF2F2',
+     icon: (
+diff --git a/umiasense-front-main/src/pages/tasks/TaskDetailPage.tsx b/umiasense-front-main/src/pages/tasks/TaskDetailPage.tsx
+index e168083..da4faf9 100644
+--- a/umiasense-front-main/src/pages/tasks/TaskDetailPage.tsx
++++ b/umiasense-front-main/src/pages/tasks/TaskDetailPage.tsx
+@@ -1,6 +1,3 @@
+-// ФАЙЛ: umiasense-front-main/src/pages/tasks/TaskDetailPage.tsx
+-// ПОЛНАЯ ЗАМЕНА ФАЙЛА
+-
+ import { useEffect, useState } from 'react';
+ import { useParams, useNavigate } from 'react-router-dom';
+ import { toast } from 'sonner';
+@@ -11,40 +8,22 @@ import type { Task, TaskRating, Child } from '../../types';
+ const formatDate = (iso: string) =>
+   new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+ 
+-function StarRating({
+-  value,
+-  onChange,
+-  disabled,
+-}: {
+-  value: number;
+-  onChange: (v: number) => void;
+-  disabled?: boolean;
+-}) {
++/** Оценка только для просмотра: ставит её администратор */
++function Stars({ value }: { value: number }) {
+   return (
+-    <div className="flex items-center gap-1">
++    <div className="flex items-center gap-0.5" aria-label={`Оценка ${value} из 5`}>
+       {[1, 2, 3, 4, 5].map((n) => (
+-        <button
+-          key={n}
+-          type="button"
+-          disabled={disabled}
+-          onClick={() => onChange(n)}
+-          className="p-0.5 disabled:opacity-50"
+-        >
+-          <svg
+-            width="26" height="26" viewBox="0 0 24 24"
+-            fill={n <= value ? '#E07628' : 'none'}
+-            stroke={n <= value ? '#E07628' : '#D1D5DB'}
+-            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+-          >
+-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+-          </svg>
+-        </button>
++        <svg key={n} width="20" height="20" viewBox="0 0 24 24"
++          fill={n <= value ? '#E07628' : 'none'} stroke={n <= value ? '#E07628' : '#D1D5DB'}
++          strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
++          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
++        </svg>
+       ))}
+     </div>
+   );
+ }
+ 
+-function ChildRatingRow({
++function ChildTaskRow({
+   taskId,
+   child,
+   rating,
+@@ -57,42 +36,8 @@ function ChildRatingRow({
+ }) {
+   const { user } = useAuthStore();
+   const isParent = user?.role === 'parent';
+-
+-  const [value,   setValue]   = useState(rating?.rating ?? 0);
+-  const [comment, setComment] = useState(rating?.comment ?? '');
+-  const [saving,  setSaving]  = useState(false);
+-  const [editingComment, setEditingComment] = useState(false);
+   const [uploading, setUploading] = useState(false);
+ 
+-  const handleRate = async (n: number) => {
+-    setValue(n);
+-    setSaving(true);
+-    try {
+-      const { data } = await tasksApi.setRating(taskId, child._id, { rating: n, comment });
+-      onSaved(data);
+-      toast.success(`Оценка сохранена: ${n} из 5`);
+-    } catch {
+-      toast.error('Не удалось сохранить оценку');
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  const handleSaveComment = async () => {
+-    if (!value) { toast.error('Сначала поставьте оценку'); return; }
+-    setSaving(true);
+-    try {
+-      const { data } = await tasksApi.setRating(taskId, child._id, { rating: value, comment });
+-      onSaved(data);
+-      setEditingComment(false);
+-      toast.success('Комментарий сохранён');
+-    } catch {
+-      toast.error('Не удалось сохранить комментарий');
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+     if (!file) return;
+@@ -100,35 +45,44 @@ function ChildRatingRow({
+     try {
+       const { data } = await tasksApi.uploadSubmission(taskId, child._id, file);
+       onSaved(data);
+-      toast.success('Выполненное задание загружено');
+-    } catch {
+-      toast.error('Не удалось загрузить файл');
++      toast.success('Ответ отправлен на проверку');
++    } catch (err: any) {
++      toast.error(err?.response?.data?.message || 'Не удалось загрузить файл');
+     } finally {
+       setUploading(false);
+       e.target.value = '';
+     }
+   };
+ 
++  const graded = !!rating?.rating;
++  const submitted = !!rating?.submissionUrl;
++  const status = graded
++    ? { label: 'Оценено', color: '#16A34A', bg: '#F0FDF4' }
++    : submitted
++      ? { label: 'На проверке', color: '#E07628', bg: '#FFF3EA' }
++      : { label: 'Не выполнено', color: '#6B7280', bg: '#F3F4F6' };
++
+   return (
+     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+       <div className="flex items-center justify-between gap-3 flex-wrap">
+         <p className="text-sm font-semibold text-gray-800">{child.name}</p>
+-        <StarRating value={value} onChange={handleRate} disabled={saving} />
++        <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={{ color: status.color, backgroundColor: status.bg }}>
++          {status.label}
++        </span>
+       </div>
+ 
+-      {/* Выполненное задание */}
++      {/* Ответ (выполненное задание) */}
+       <div className="border-t border-gray-50 pt-3">
+-        {rating?.submissionUrl ? (
++        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Ваш ответ</p>
++        {submitted ? (
+           <div className="flex items-center gap-3">
+-            <a href={rating.submissionUrl} target="_blank" rel="noreferrer" className="flex-shrink-0">
+-              <img src={rating.submissionUrl} className="w-14 h-14 rounded-lg object-cover border border-gray-200" alt="" />
++            <a href={rating!.submissionUrl} target="_blank" rel="noreferrer" className="flex-shrink-0">
++              <img src={rating!.submissionUrl} className="w-14 h-14 rounded-lg object-cover border border-gray-200" alt="" />
+             </a>
+             <div className="flex-1 min-w-0">
+-              <p className="text-xs font-medium text-gray-700 truncate">
+-                {rating.submissionFileName || 'Выполненное задание'}
+-              </p>
++              <p className="text-xs font-medium text-gray-700 truncate">{rating!.submissionFileName || 'Выполненное задание'}</p>
+               <p className="text-[10px] text-gray-400 mt-0.5">
+-                {rating.submittedAt ? `Загружено ${formatDate(rating.submittedAt)}` : 'Загружено'}
++                {rating!.submittedAt ? `Загружено ${formatDate(rating!.submittedAt)}` : 'Загружено'}
+               </p>
+             </div>
+             {isParent && (
+@@ -147,56 +101,37 @@ function ChildRatingRow({
+                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                 </svg>
+-                <span className="text-xs text-gray-400">Загрузить выполненное задание</span>
++                <span className="text-xs text-gray-400">Загрузить фото выполненного задания</span>
+               </>
+             )}
+             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleUpload} disabled={uploading} />
+           </label>
+         ) : (
+-          <p className="text-xs text-gray-300">Домашнее задание ещё не загружено</p>
++          <p className="text-xs text-gray-300">Ответ ещё не загружен</p>
+         )}
+       </div>
+ 
+-      {editingComment ? (
+-        <div className="space-y-2">
+-          <textarea
+-            value={comment}
+-            onChange={(e) => setComment(e.target.value)}
+-            placeholder="Комментарий к выполнению (необязательно)"
+-            rows={2}
+-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-[#E07628] transition-colors resize-none"
+-          />
+-          <div className="flex gap-2">
+-            <button
+-              onClick={handleSaveComment}
+-              disabled={saving}
+-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#E07628] text-white hover:bg-[#C4641A] transition disabled:opacity-50"
+-            >
+-              Сохранить
+-            </button>
+-            <button
+-              onClick={() => { setEditingComment(false); setComment(rating?.comment ?? ''); }}
+-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
+-            >
+-              Отмена
+-            </button>
++      {/* Оценка администратора — только просмотр */}
++      <div className="border-t border-gray-50 pt-3">
++        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Оценка</p>
++        {graded ? (
++          <div className="space-y-1.5">
++            <div className="flex items-center gap-2">
++              <Stars value={rating!.rating!} />
++              <span className="text-sm font-bold text-gray-800">{rating!.rating} из 5</span>
++            </div>
++            {rating!.comment && (
++              <p className="text-xs text-gray-600 leading-relaxed bg-gray-50 rounded-lg px-3 py-2">
++                <span className="font-semibold text-gray-700">Комментарий: </span>{rating!.comment}
++              </p>
++            )}
+           </div>
+-        </div>
+-      ) : (
+-        <div className="flex items-center justify-between gap-2">
+-          {comment ? (
+-            <p className="text-xs text-gray-500 leading-relaxed flex-1">{comment}</p>
+-          ) : (
+-            <p className="text-xs text-gray-300 flex-1">Без комментария</p>
+-          )}
+-          <button
+-            onClick={() => setEditingComment(true)}
+-            className="text-[11px] font-semibold text-[#E07628] hover:underline flex-shrink-0"
+-          >
+-            {comment ? 'Изменить' : 'Добавить комментарий'}
+-          </button>
+-        </div>
+-      )}
++        ) : (
++          <p className="text-xs text-gray-400">
++            {submitted ? 'Ответ получен — администратор проверит его и поставит оценку.' : 'Оценка появится после проверки ответа администратором.'}
++          </p>
++        )}
++      </div>
+     </div>
+   );
+ }
+@@ -211,14 +146,15 @@ export default function TaskDetailPage() {
+   const [ratings,  setRatings]  = useState<TaskRating[]>([]);
+   const [loading,  setLoading]  = useState(true);
+ 
+-  const canRate = user?.role === 'parent' || user?.role === 'trainer';
++  // Родитель загружает ответ и видит оценку; тренер видит результат своих детей. Оценивает только администратор.
++  const canSee = user?.role === 'parent' || user?.role === 'trainer';
+ 
+   useEffect(() => {
+     if (!id) return;
+     const loaders: Promise<any>[] = [
+       tasksApi.getOne(id).then(({ data }) => setTask(data)),
+     ];
+-    if (canRate) {
++    if (canSee) {
+       loaders.push(childrenApi.getAll().then(({ data }) => setChildren(data)));
+       loaders.push(tasksApi.getRatings(id).then(({ data }) => setRatings(data)));
+     }
+@@ -278,25 +214,25 @@ export default function TaskDetailPage() {
+         <p className="text-sm text-gray-700 leading-[1.8] whitespace-pre-wrap">{task.content}</p>
+       </div>
+ 
+-      {canRate && (
++      {canSee && (
+         <div className="space-y-3">
+           <div>
+             <h2 className="text-base font-bold text-gray-900">Выполнение и оценка</h2>
+             <p className="text-xs text-gray-400 mt-0.5">
+               {user?.role === 'parent'
+-                ? 'Загрузите выполненное задание и посмотрите оценку за каждого ребёнка'
+-                : 'Поставьте оценку от 1 до 5 за каждого ребёнка'}
++                ? 'Загрузите фото выполненного задания — администратор проверит и поставит оценку'
++                : 'Ответы и оценки ваших детей. Оценки ставит администратор'}
+             </p>
+           </div>
+ 
+           {children.length === 0 ? (
+             <div className="bg-white rounded-2xl border border-dashed border-gray-200 px-6 py-8 text-center">
+-              <p className="text-xs text-gray-400">Нет доступных детей для оценки</p>
++              <p className="text-xs text-gray-400">Нет детей для этого задания</p>
+             </div>
+           ) : (
+             <div className="space-y-3">
+               {children.map((child) => (
+-                <ChildRatingRow
++                <ChildTaskRow
+                   key={child._id}
+                   taskId={task._id}
+                   child={child}
+diff --git a/umiasense-front-main/src/types/index.ts b/umiasense-front-main/src/types/index.ts
+index c333280..b4fda10 100644
+--- a/umiasense-front-main/src/types/index.ts
++++ b/umiasense-front-main/src/types/index.ts
+@@ -132,7 +132,7 @@ export interface Recommendation {
+ 
+ export type NotificationType =
+   | 'diary_entry' | 'invite_accepted' | 'ai_recommendation' | 'emotion_reminder' | 'new_article' | 'new_task'
+-  | 'enrollment_update' | 'trainer_assigned' | 'session_cancelled';
++  | 'enrollment_update' | 'trainer_assigned' | 'session_cancelled' | 'task_rated';
+ 
+ export interface Article {
+   _id: string;
+-- 
+2.43.0
+
